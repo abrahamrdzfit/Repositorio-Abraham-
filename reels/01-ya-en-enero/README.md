@@ -1,6 +1,6 @@
 # Reel 1: "Ya en enero me pongo bien" (versión animada)
 
-- **Archivo final:** `reel-ya-en-enero.mp4` · 1080×1920 · 60 fps · 50.4 s · H.264 + AAC
+- **Archivo final:** `reel-ya-en-enero.mp4` · 1080×1920 · 30 fps · 50.4 s · H.264 + AAC
 - **Portada:** `portada.png` (cuadro del gancho)
 - **Tipo:** identificación → venta · cierre con palabra clave RECETAS por DM
 - **Formato:** plantilla "Formato Reel AR" (100 BPM, compás de 2.4 s, Montserrat, paleta AR, logo solo al final, música y efectos generados en código)
