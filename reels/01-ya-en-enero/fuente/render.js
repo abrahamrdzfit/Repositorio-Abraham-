@@ -30,7 +30,7 @@ const shot = async (page, t, opts = {}) => {
     if (safe) await page.evaluate(() => window.showSafe(true));
     const bd = path.join(out, 'beats'); fs.mkdirSync(bd, { recursive: true });
     const off = parseFloat(process.argv[4] || '0.45');
-    const NB = await page.evaluate(() => window.META.NBARS * 4);
+    const NB = await page.evaluate(() => Math.round(window.META.DUR / window.META.BEAT));
     for (let k = 0; k < NB; k++) {
       await page.evaluate(t => window.seek(t), k * 0.6 + off);
       await page.screenshot({ path: path.join(bd, `b${String(k).padStart(2, '0')}.png`) });
@@ -56,7 +56,7 @@ const shot = async (page, t, opts = {}) => {
   }
 
   if (mode === 'full') {
-    const DUR = 50.4, N = Math.round(DUR * FPS), W = parseInt(process.argv[3] || '4');
+    const DUR = await (async()=>{const p=await openPage(browser);const d=await p.evaluate(()=>window.META.DUR);await p.close();return d;})(), N = Math.round(DUR * FPS), W = parseInt(process.argv[3] || '4');
     const per = Math.ceil(N / W), t0 = Date.now();
     let done = 0;
     const only = process.argv[4] ? process.argv[4].split(',').map(Number) : null;

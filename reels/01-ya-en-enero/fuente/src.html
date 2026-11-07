@@ -38,7 +38,30 @@ body{font-family:'Montserrat',sans-serif;font-weight:500;color:var(--carbon);-we
 const BPM=100, BEAT=60/BPM, BAR=4*BEAT, NBARS=21, DUR=NBARS*BAR; // 50.4 s
 const bt=(n,b=1)=>(n-1)*BAR+(b-1)*BEAT;           // compás n, tiempo b (1-indexado)
 const C={carbon:'#1B2013',olivo:'#384210',piedra:'#A39C87',ocre:'#C4882F',arena:'#EDE8DE',hueso:'#FBFAF7'};
-const X0=90, MAXW=800; // columna de contenido (zona segura: x<930, 250<y<1500)
+const X0=90, MAXW=800;
+/* ---------- línea de tiempo nueva, sincronizada con la voz ----------
+   Cada compás de la animación (1..21) empieza cuando la voz dice esa parte. */
+const NEW=[0,5.1,9.6,12.6,15.6,20.4,23.4,27.6,31.2,33.6,36.0,41.4,48.0,50.4,54.6,61.2,65.4,67.8,69.0,70.2,71.4];
+const DURN=74.4, H1=1.95, H2=2.15, TAIL=0.25;
+const nEnd=k=>k+1<NEW.length?NEW[k+1]:DURN;
+// tiempo nuevo -> tiempo de la animación original
+function n2o(tn){
+  let k=0; NEW.forEach((v,i)=>{if(tn>=v) k=i;});
+  const S0=NEW[k], len=nEnd(k)-S0, l=tn-S0; let lo;
+  if(len<BAR) lo=l*BAR/len;
+  else if(l<H1) lo=l;
+  else if(l<len-TAIL) lo=H1+(l-H1)/(len-TAIL-H1)*(H2-H1);
+  else lo=BAR-(len-l);
+  return k*BAR+Math.min(lo,BAR-1e-6);
+}
+// tiempo de la animación original -> tiempo nuevo (para los efectos de sonido)
+function o2n(to){
+  const k=clamp(Math.floor(to/BAR+1e-9),0,NEW.length-1), lo=to-k*BAR, S0=NEW[k], len=nEnd(k)-S0;
+  if(len<BAR) return S0+lo*len/BAR;
+  if(lo<H1) return S0+lo;
+  if(lo<H2) return S0+H1+(lo-H1)/(H2-H1)*(len-TAIL-H1);
+  return S0+len-(BAR-lo);
+} // columna de contenido (zona segura: x<930, 250<y<1500)
 
 /* ---------- easing como funciones del tiempo ---------- */
 const clamp=(x,a=0,b=1)=>Math.min(b,Math.max(a,x));
@@ -55,8 +78,8 @@ function spring(dt,f=2.6,z=0.62){
 
 /* ---------- clips de video (cuadros JPG en frames/) ---------- */
 const VID={
-  pizza:  {dir:'frames/pizza',  n:180, fps:59.94, speed:1.0,  off:0.25},
-  tuppers:{dir:'frames/tuppers',n:62,  fps:30,    speed:0.86, off:0.0},
+  pizza:  {dir:'frames/pizza',  n:180, fps:59.94, off:0.25},
+  tuppers:{dir:'frames/tuppers',n:62,  fps:30,    off:0.0},
 };
 
 /* ---------- escenas ---------- */
@@ -529,7 +552,9 @@ const bgA=document.getElementById('bgA'), bgB=document.getElementById('bgB'), bg
 const vidA=document.getElementById('vidA'), vidB=document.getElementById('vidB');
 function tri(c){return `polygon(0px 1920px,${c}px 1920px,0px ${1920-c}px)`;}
 function vidSrc(s,t){
-  const v=s.vid, i=clamp(Math.floor(((t-s.a)*v.speed+v.off)*v.fps),0,v.n-1)+1;
+  // el clip se reparte en lo que dura la escena en la línea nueva
+  const v=s.vid, k=Math.round(s.a/BAR), a=NEW[k], len=nEnd(k)-a, tn=window.__tn??t;
+  const p=(tn-a)/len, i=clamp(Math.floor((v.off+p*(v.n/v.fps-v.off))*v.fps),0,v.n-1)+1;
   return `${v.dir}/f_${String(i).padStart(4,'0')}.jpg`;
 }
 function paint(layer,img,s,t,pend){
@@ -538,7 +563,7 @@ function paint(layer,img,s,t,pend){
   img.style.display='block';
   const src=vidSrc(s,t);
   if(img.dataset.src!==src){img.dataset.src=src;img.src=src;pend.push(img.decode().catch(()=>{}));}
-  const z=1+0.06*seg(t,s.a,s.b+0.6);
+  const z=1+0.06*seg(window.__tn??t,NEW[Math.round(s.a/BAR)],nEnd(Math.round(s.a/BAR))+0.6);
   img.style.transform=`scale(${z.toFixed(4)})`;
 }
 function background(t,pend){
@@ -555,8 +580,9 @@ function background(t,pend){
 }
 
 /* ---------- seek: todo el estilo sale de t ---------- */
-window.seek=function(t){
-  t=clamp(t,0,DUR);
+window.seek=function(tn){
+  tn=clamp(tn,0,DURN); window.__tn=tn;
+  let t=n2o(tn);
   const pend=[];
   background(t,pend);
   SCENES.forEach(s=>{
@@ -571,7 +597,7 @@ window.seek=function(t){
   return pend.length?Promise.all(pend).then(()=>true):true;
 };
 window.showSafe=v=>{document.getElementById('safe').style.display=v?'block':'none';};
-window.META={DUR,BPM,BEAT,BAR,NBARS};
+window.META={DUR:DURN,BPM,BEAT,BAR,NBARS};
 window.ready=(async()=>{
   await document.fonts.load('800 100px Montserrat'); await document.fonts.load('500 100px Montserrat'); await document.fonts.ready;
   fitAll(); await window.seek(0); return true;
@@ -581,13 +607,13 @@ window.ready=(async()=>{
    BANDA SONORA (OfflineAudioContext) -> WAV base64
    ===================================================================== */
 window.renderAudio=async function(){
-  const SR=48000, LEN=Math.ceil(DUR*SR);
+  const SR=48000, LEN=Math.ceil(DURN*SR);
   const ctx=new OfflineAudioContext(2,LEN,SR);
   let seed=1234567; const rnd=()=>{seed=(seed*1664525+1013904223)>>>0;return seed/4294967296*2-1;};
   const nb=ctx.createBuffer(1,SR*2,SR); const nd=nb.getChannelData(0); for(let i=0;i<nd.length;i++) nd[i]=rnd();
   const comp=ctx.createDynamicsCompressor(); comp.threshold.value=-16; comp.ratio.value=3; comp.attack.value=0.004; comp.release.value=0.12; comp.knee.value=8;
   const master=ctx.createGain(); master.gain.value=0.8;
-  const fade=ctx.createGain(); fade.gain.setValueAtTime(1,0); fade.gain.setValueAtTime(1,DUR-0.5); fade.gain.linearRampToValueAtTime(0,DUR);
+  const fade=ctx.createGain(); fade.gain.setValueAtTime(1,0); fade.gain.setValueAtTime(1,DURN-0.5); fade.gain.linearRampToValueAtTime(0,DURN);
   master.connect(comp); comp.connect(fade); fade.connect(ctx.destination);
   const bus=(g,pan=0)=>{const x=ctx.createGain();x.gain.value=g;const p=ctx.createStereoPanner();p.pan.value=pan;x.connect(p);p.connect(master);return x;};
   const drums=bus(0.8), sfx=bus(1);
@@ -641,12 +667,13 @@ window.renderAudio=async function(){
   }
   // groove
   const notes=[82.41,82.41,65.41,73.42];
-  for(let n=1;n<=NBARS;n++){
+  const NB=Math.round(DURN/BAR);
+  for(let n=1;n<=NB;n++){
     for(let b=1;b<=4;b++){
       const t=bt(n,b);
-      if(n===NBARS){ if(b===1){kick(t);boom(t,0.7);hat(t,0.8,true);} continue; }
+      if(n===NB){ if(b===1){kick(t);boom(t,0.7);hat(t,0.8,true);} continue; }
       kick(t, n===1&&b===1?1.1:1);
-      if(n>=2&&(b===2||b===4)) clap(t, n>=18?0.8:1);
+      if(n>=2&&(b===2||b===4)) clap(t, t>=NEW[17]?0.8:1);
       hat(t+BEAT/2,1,b===4&&n%2===0);
       if(n>=2) hat(t+BEAT/4,0.45), hat(t+3*BEAT/4,0.45);
       if(n>=2) bass(t+BEAT/2,notes[(n-2)%4]);
@@ -705,6 +732,10 @@ window.renderAudio=async function(){
   }
   const tagIn=t=>{click(t,0.8);zip(t,0.5);};
 
+  // los efectos se programan en tiempo de la animación y se pasan a la línea nueva
+  {const W=f=>(t,...a)=>f(o2n(t),...a);
+   impact=W(impact);popS=W(popS);blip=W(blip);ding=W(ding);swish=W(swish);click=W(click);dim=W(dim);
+   scratch=W(scratch);thud=W(thud);whoosh=W(whoosh);pop=W(pop);boom=W(boom);}
   // ---------- transiciones ----------
   SCENES.slice(1).forEach(s=>whoosh(s.a,1));
   [bt(3),bt(5),bt(6),bt(11),bt(14),bt(15),bt(17)].forEach(t=>whoosh(t,0.45)); // cambios internos
@@ -774,7 +805,7 @@ window.renderAudio=async function(){
   boom(bt(18),0.6); swish(bt(18),0.5,0.9); chime(bt(18)+0.05,[N.E5,N.B5,N.E6],0.8,0.07);
   popS(bt(18,3),N.G5); click(bt(18,3),0.5);
   popS(bt(19),N.E4,1.2); click(bt(19),0.5);
-  for(let i=0;i<WORD.length;i++){click(typeAt(i),0.9);tick(typeAt(i),2000+i*120,0.5);}
+  for(let i=0;i<WORD.length;i++){click(typeAt(i),0.9);tick(o2n(typeAt(i)),2000+i*120,0.5);}
   popS(bt(19,3),N.A5,0.8);
   click(TAP-0.04,1); pop(TAP,1); chime(TAP+0.06,[N.B5,N.E6],1,0.08);
   popS(bt(20,3),N.A5);
