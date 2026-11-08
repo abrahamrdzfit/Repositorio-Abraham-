@@ -39,7 +39,7 @@ svg text{font-family:'Montserrat',sans-serif}
 const BPM=100, BEAT=60/BPM, BAR=4*BEAT, NBARS=19, DUR=NBARS*BAR; // 45.6 s
 const bt=(n,b=1)=>(n-1)*BAR+(b-1)*BEAT;           // compás n, tiempo b (1-indexado)
 const C={carbon:'#1B2013',olivo:'#384210',piedra:'#A39C87',ocre:'#C4882F',arena:'#EDE8DE',hueso:'#FBFAF7',
-         olivoClaro:'#9AA65A',sombra:'#3A4230'};
+         olivoClaro:'#9AA65A',ocreClaro:'#E2BC72',sombra:'#3A4230'};
 const X0=90, MAXW=800; // columna de contenido (zona segura: x<930, 250<y<1500)
 // tu video (cuadros JPG en frames/jalon). Si no existe, el gancho usa la animación.
 const VIDINFO=__VIDINFO__;
@@ -148,7 +148,7 @@ function strike(sc,x,y,w,at,out,col=C.carbon,h=14){
 function legend(sc,x,y,col,txt,fs=44,o={}){
   const q=fs*0.7;
   return T(sc,`left:${x}px;top:${y}px;color:${o.fg||C.carbon};font-size:${fs}px;display:flex;align-items:center;gap:18px`,
-    `<span style="display:inline-block;width:${q}px;height:${q}px;background:${col};box-shadow:inset 0 0 0 3px ${C.carbon}"></span><span class="xb">${txt}</span>`);
+    `<span style="display:inline-block;width:${q}px;height:${q}px;background:${col}"></span><span class="xb">${txt}</span>`);
 }
 const checkSvg=(c,s=56)=>`<svg width="${s}" height="${s}" viewBox="0 0 56 56"><polyline points="8,30 22,44 48,14" fill="none" stroke="${c}" stroke-width="10" stroke-linecap="square" stroke-linejoin="miter"/></svg>`;
 const crossSvg=(c,s=56)=>`<svg width="${s}" height="${s}" viewBox="0 0 56 56"><path d="M10 10 L46 46 M46 10 L10 46" stroke="${c}" stroke-width="10" stroke-linecap="square"/></svg>`;
@@ -182,7 +182,7 @@ function backAt(p){ // posiciones del lado izquierdo en función del avance del 
 function backFig(svg,o={}){
   const body=o.body||C.carbon, shade=o.shade||C.sombra;
   const g=sv(svg,'g');
-  const cable=o.hang?null:sv(g,'line',{x1:540,y1:40,x2:540,y2:0,stroke:C.piedra,'stroke-width':8});
+  const cable=o.hang?null:sv(g,'line',{x1:540,y1:110,x2:540,y2:0,stroke:C.piedra,'stroke-width':8});
   const bar=sv(g,'line',{stroke:body,'stroke-width':20});
   const fig=sv(g,'g');
   const extra=sv(fig,'g'); // capa para trazos de trayectoria
@@ -224,13 +224,13 @@ function backFig(svg,o={}){
         teres[k].setAttribute('stroke',mix(shade,C.olivoClaro,hl.teres||0));
         setL(up[k],M(L.S),M(L.E));
         setL(bic[k],M(add(L.S,L.u,62)),M(add(L.S,L.u,150)));
-        bic[k].setAttribute('stroke',mix(body,hl.bicCol||C.piedra,hl.bic||0));
+        bic[k].setAttribute('stroke',mix(body,hl.bicCol||C.ocreClaro,hl.bic||0));
         setL(fo[k],M(L.E),M(L.H));
         hand[k].setAttribute('cx',M(L.H)[0]);hand[k].setAttribute('cy',L.H[1]);
         delt[k].setAttribute('cx',M(L.S)[0]);delt[k].setAttribute('cy',L.S[1]);
       }
       trap.setAttribute('points',P(trapP));
-      trap.setAttribute('fill',mix(shade,C.arena,hl.trap||0));
+      trap.setAttribute('fill',mix(shade,C.piedra,hl.trap||0));
       if(o.hang){
         const H0=backAt(0).H[1], dy=H0-L.H[1];
         fig.setAttribute('transform',`translate(0,${dy.toFixed(1)})`);
@@ -382,7 +382,7 @@ function sideFig(svg,o={}){
   // compás 7: también trabajan
   const m0=T(sc,`left:${X0}px;top:370px;font-size:56px;color:${C.carbon}`,'También trabajan:','a md');
   track(sc,m0,io(b7,out,{d:60}));
-  [[C.olivoClaro,'REDONDO MAYOR'],[C.arena,'TRAPECIO MEDIO E INFERIOR'],[C.piedra,'BÍCEPS (DE APOYO)']].forEach(([c,w],i)=>{
+  [[C.olivoClaro,'REDONDO MAYOR'],[C.piedra,'TRAPECIO MEDIO E INFERIOR'],[C.ocreClaro,'BÍCEPS (DE APOYO)']].forEach(([c,w],i)=>{
     const e=legend(sc,X0,448+i*88,c,w,38); e.dataset.fit=MAXW;
     track(sc,e,io(bt(7)+BEAT/2+i*BEAT,out,{d:0,dx:-200,f:2.8,z:0.7}));
   });
@@ -573,7 +573,7 @@ function sideFig(svg,o={}){
   const ST=[['40%',190],['55%',280],['70%',370],['85%',460],['TU PESO',550]], SW=150, SG=12, SB=1320;
   ST.forEach(([lab,h],i)=>{
     const last=i===ST.length-1, x=X0+i*(SW+SG), at=b14+BEAT+i*BEAT/3;
-    const bx=T(sc,`left:${x}px;top:${SB-h}px;width:${SW}px;height:${h}px;background:${last?C.ocre:C.olivo};transform-origin:50% 100%;${last?CUT(30):''}`,'');
+    const bx=T(sc,`left:${x}px;top:${SB-h}px;width:${SW}px;height:${h}px;background:${last?C.ocre:C.olivo};transform-origin:50% 100%;`,'');
     track(sc,bx,t=>({...io(at,out,{d:0})(t),sy:expOut(seg(t,at,at+0.3))}));
     const tx=T(sc,`left:${x}px;top:${SB-h-58}px;width:${SW}px;text-align:center;font-size:${last?32:38}px;color:${last?C.ocre:C.carbon}`,lab,'a xb');
     track(sc,tx,io(at+0.1,out,{d:30}));
@@ -634,18 +634,16 @@ const TAP=bt(18,2);
   track(sc,hdl,io(bt(17,3),out,{d:70}));
   // botón de guardar
   const BS=190, BX=CX-BS/2, BY=860;
-  const bm=(fill)=>`<svg width="96" height="120" viewBox="0 0 96 120"><path d="M8 6 H88 V112 L48 82 L8 112 Z" fill="${fill}" stroke="${C.carbon}" stroke-width="10" stroke-linejoin="miter"/></svg>`;
-  const btn=T(sc,`left:${BX}px;top:${BY}px;width:${BS}px;height:${BS}px;border:6px solid ${C.carbon};background:${C.hueso};display:flex;align-items:center;justify-content:center;${CUT(40)}`,bm('none'));
+  const bm=(fill)=>`<svg width="120" height="150" viewBox="0 0 120 150"><path d="M0 0 H120 V150 L60 108 L0 150 Z" fill="${fill}"/></svg>`;
+  const btn=T(sc,`left:${BX}px;top:${BY}px;width:${BS}px;height:${BS}px;display:flex;align-items:center;justify-content:center`,bm(C.piedra));
   track(sc,btn,t=>{
     let press=0;
     if(t>=TAP-0.06&&t<TAP) press=expOut(seg(t,TAP-0.06,TAP));
     else if(t>=TAP) press=1-spring(t-TAP,3,0.32);
     return {s:spring(t-bt(18),2.4,0.5)*(1-0.1*press),o:seg(t,bt(18),bt(18)+0.05)};
   });
-  prop(sc,t=>{const on=t>=TAP, w=on?'B':'A'; if(btn.dataset.l!==w){btn.innerHTML=bm(on?C.ocre:'none');btn.dataset.l=w;} btn.style.background=on?C.arena:C.hueso;});
-  const ring=T(sc,`left:${BX}px;top:${BY}px;width:${BS}px;height:${BS}px;border:6px solid ${C.ocre}`,'');
-  track(sc,ring,t=>{const p=seg(t,TAP,TAP+0.5);return {s:1+0.4*expOut(p),o:t>=TAP?(1-p):0};});
-  const cur=T(sc,`left:0;top:0;width:70px;height:96px`,`<svg width="70" height="96" viewBox="-4 -4 58 80"><path d="M0 0 L0 62 L15 49 L26 72 L37 67 L26 44 L46 44 Z" fill="${C.carbon}" stroke="${C.hueso}" stroke-width="4" stroke-linejoin="miter"/></svg>`);
+  prop(sc,t=>{const on=t>=TAP, w=on?'B':'A'; if(btn.dataset.l!==w){btn.innerHTML=bm(on?C.ocre:C.piedra);btn.dataset.l=w;}});
+  const cur=T(sc,`left:0;top:0;width:70px;height:96px`,`<svg width="70" height="96" viewBox="-4 -4 58 80"><path d="M0 0 L0 62 L15 49 L26 72 L37 67 L26 44 L46 44 Z" fill="${C.carbon}"/></svg>`);
   const p0={x:880,y:1500}, p1={x:CX+20,y:BY+BS/2+10};
   track(sc,cur,t=>{
     const m=expOut(seg(t,bt(18)+BEAT/2,bt(18)+BEAT/2+0.6));
