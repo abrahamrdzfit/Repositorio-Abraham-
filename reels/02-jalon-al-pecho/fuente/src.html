@@ -127,12 +127,15 @@ const CUT=(c)=>`clip-path:polygon(0 0,calc(100% - ${c}px) 0,100% ${c}px,100% 100
 const CUT2=(c)=>`clip-path:polygon(0 0,calc(100% - ${c}px) 0,100% ${c}px,100% 100%,${c}px 100%,0 calc(100% - ${c}px))`;
 const T=(sc,css,html,cls='a')=>$(sc,css,html,cls);
 function pointTag(sc,num,word,at=sc.a,out=sc.b){
-  const el=T(sc,`left:${X0}px;top:280px;padding:16px 40px 16px 24px;background:${C.olivo};color:${C.hueso};font-size:36px;letter-spacing:3px;${CUT(22)}`,
+  const el=T(sc,`left:${X0}px;top:280px;color:${C.olivo};font-size:36px;letter-spacing:3px`,
     `<span class="xb">${num}<span style="opacity:.55">/03</span></span>&nbsp;&nbsp;<span class="md">${word}</span>`);
   track(sc,el,io(at,out,{dx:-60,d:0}));
 }
+// texto solo (sin fondo). Sobre tu video va en hueso con sombra para que se lea.
+const VIDTXT=`color:${C.hueso};text-shadow:0 4px 18px rgba(0,0,0,.55),0 2px 4px rgba(0,0,0,.6);`;
 function blk(sc,x,y,fs,html,o={}){
-  const e=T(sc,`left:${x}px;top:${y}px;padding:${o.pad||'14px 34px 16px 24px'};background:${o.bg||C.carbon};color:${o.fg||C.hueso};font-size:${fs}px;${o.ls?`letter-spacing:${o.ls}px;`:''}${CUT(o.cut??26)}`,html,'a '+(o.cls||'xb'));
+  const col=o.onVid&&VIDINFO?VIDTXT:`color:${o.fg||C.carbon};`;
+  const e=T(sc,`left:${x}px;top:${y}px;${col}font-size:${fs}px;${o.ls?`letter-spacing:${o.ls}px;`:''}`,html,'a '+(o.cls||'xb'));
   if(o.fit!==false) e.dataset.fit=o.fit||MAXW;
   return e;
 }
@@ -143,8 +146,9 @@ function strike(sc,x,y,w,at,out,col=C.carbon,h=14){
 }
 // chip con cuadrito de color (leyenda de músculo)
 function legend(sc,x,y,col,txt,fs=44,o={}){
-  return T(sc,`left:${x}px;top:${y}px;padding:14px 34px 14px 20px;background:${o.bg||C.carbon};color:${o.fg||C.hueso};font-size:${fs}px;display:flex;align-items:center;gap:20px;${CUT(22)}`,
-    `<span style="display:inline-block;width:${fs*0.75}px;height:${fs*0.75}px;background:${col}"></span><span class="xb">${txt}</span>`);
+  const q=fs*0.7;
+  return T(sc,`left:${x}px;top:${y}px;color:${o.fg||C.carbon};font-size:${fs}px;display:flex;align-items:center;gap:18px`,
+    `<span style="display:inline-block;width:${q}px;height:${q}px;background:${col};box-shadow:inset 0 0 0 3px ${C.carbon}"></span><span class="xb">${txt}</span>`);
 }
 const checkSvg=(c,s=56)=>`<svg width="${s}" height="${s}" viewBox="0 0 56 56"><polyline points="8,30 22,44 48,14" fill="none" stroke="${c}" stroke-width="10" stroke-linecap="square" stroke-linejoin="miter"/></svg>`;
 const crossSvg=(c,s=56)=>`<svg width="${s}" height="${s}" viewBox="0 0 56 56"><path d="M10 10 L46 46 M46 10 L10 46" stroke="${c}" stroke-width="10" stroke-linecap="square"/></svg>`;
@@ -311,26 +315,25 @@ function sideFig(svg,o={}){
       q.setAttribute('transform',`translate(0,${(-10*Math.sin(t*5)).toFixed(1)})`);
     });
   }
-  const tag=blk(sc,X0,300,40,'SEGURO TE HA PASADO ESTO:',{bg:C.hueso,fg:C.carbon,ls:2,cut:22,pad:'14px 36px 14px 22px'});
-  if(!VIDINFO) tag.style.background=C.carbon, tag.style.color=C.hueso;
+  const tag=blk(sc,X0,300,40,'SEGURO TE HA PASADO ESTO:',{ls:2,onVid:1});
   track(sc,tag,io(bt(1),b3,{dx:-60,d:0}));
   ['HACES JALÓN','AL PECHO…'].forEach((w,i)=>{
-    const e=blk(sc,X0,420+i*150,112,w,{pad:'16px 40px 18px 26px',cut:30});
+    const e=blk(sc,X0,420+i*135,112,w,{onVid:1});
     track(sc,e,io(bt(1)+BEAT/4+i*BEAT/4,bt(2),{d:140}));
   });
-  const s1=blk(sc,X0,420,58,'Y LO SIENTES TODO EN LOS',{pad:'14px 34px 14px 24px'});
+  const s1=blk(sc,X0,420,58,'Y LO SIENTES TODO EN LOS',{onVid:1});
   track(sc,s1,io(bt(2),b3,{d:80}));
-  const s2=blk(sc,X0,520,150,`<span style="color:${C.ocre}">BRAZOS</span>`,{pad:'16px 44px 18px 26px',cut:32});
+  const s2=blk(sc,X0,520,150,`<span style="color:${C.ocre}">BRAZOS</span>`,{onVid:1});
   track(sc,s2,io(bt(2)+BEAT/4,b3,{d:140,s0:0.8}));
-  const s3=blk(sc,X0,720,58,`MENOS EN LA <span style="color:${C.ocre}">ESPALDA.</span>`,{pad:'14px 34px 14px 24px'});
+  const s3=blk(sc,X0,720,58,`MENOS EN LA <span style="color:${C.ocre}">ESPALDA.</span>`,{onVid:1});
   track(sc,s3,io(bt(2,3),b3,{d:80}));
   // intro
-  const i1=blk(sc,X0,380,64,'ESO PASA PORQUE',{pad:'14px 34px 14px 24px'});
-  const i2=blk(sc,X0,490,64,'NADIE TE EXPLICÓ',{pad:'14px 34px 14px 24px'});
+  const i1=blk(sc,X0,380,64,'ESO PASA PORQUE',{onVid:1});
+  const i2=blk(sc,X0,465,64,'NADIE TE EXPLICÓ',{onVid:1});
   track(sc,i1,io(b3,out,{d:90}));
   track(sc,i2,io(b3+BEAT/4,out,{d:90}));
-  const i3=blk(sc,X0,620,130,`<span style="color:${C.ocre}">PARA QUÉ ES</span>`,{pad:'16px 40px 18px 26px',cut:30});
-  const i4=blk(sc,X0,800,64,'EL EJERCICIO.',{pad:'14px 34px 14px 24px'});
+  const i3=blk(sc,X0,575,130,`<span style="color:${C.ocre}">PARA QUÉ ES</span>`,{onVid:1});
+  const i4=blk(sc,X0,730,64,'EL EJERCICIO.',{onVid:1});
   track(sc,i3,io(bt(4),out,{d:140}));
   track(sc,i4,io(bt(4)+BEAT/2,out,{d:90}));
 }
@@ -393,7 +396,7 @@ function sideFig(svg,o={}){
   const l1=T(sc,`left:${X0}px;top:420px;font-size:62px;color:${C.hueso}`,'Pero si no sabes','a md');
   const l2=T(sc,`left:${X0}px;top:505px;font-size:86px;color:${C.hueso}`,'QUÉ MOVIMIENTO','a xb'); l2.dataset.fit=MAXW;
   const l3=T(sc,`left:${X0}px;top:605px;font-size:86px;color:${C.hueso}`,'HACE EL DORSAL,','a xb'); l3.dataset.fit=MAXW;
-  const l4=blk(sc,X0,770,74,'NUNCA LO VAS A SENTIR.',{bg:C.ocre,fg:C.carbon,pad:'18px 40px 18px 24px'});
+  const l4=blk(sc,X0,770,74,'NUNCA LO VAS A SENTIR.',{fg:C.ocre});
   const l5=T(sc,`left:${X0}px;top:960px;font-size:70px;color:${C.olivoClaro}`,'Te lo explico.','a xb');
   track(sc,l1,io(a,out,{d:70}));
   track(sc,l2,io(a+BEAT/4,out,{d:100}));
@@ -437,7 +440,7 @@ function sideFig(svg,o={}){
   }
   // ---- compás 10: vista lateral, codos a las bolsas de atrás
   {
-    const FS=0.78, FX=150, FY=640, L=layer(sc,FX,FY,FS);
+    const FS=0.78, FX=250, FY=640, L=layer(sc,FX,FY,FS);
     const f=sideFig(L.svg);
     const trail=sv(f.extra,'line',{stroke:C.ocre,'stroke-width':10,'stroke-dasharray':'22 16','stroke-linecap':'butt'});
     const th=arrowHead(f.extra,C.ocre,36);
@@ -475,7 +478,7 @@ function sideFig(svg,o={}){
     const g=L.svg, B=[420,330];
     sv(g,'line',{x1:540,y1:120,x2:540,y2:B[1]-34,stroke:C.piedra,'stroke-width':8});
     sv(g,'rect',{x:120,y:B[1]-34,width:840,height:68,fill:C.carbon});
-    sv(g,'line',{x1:350,y1:880,x2:350,y2:B[1]+60,stroke:C.carbon,'stroke-width':76});
+    sv(g,'line',{x1:350,y1:760,x2:350,y2:B[1]+60,stroke:C.carbon,'stroke-width':76});
     const hook=sv(g,'path',{d:`M 350 ${B[1]+80} L 350 ${B[1]} A 70 70 0 0 1 490 ${B[1]} L 490 ${B[1]+60}`,fill:'none',stroke:C.ocre,'stroke-width':58,'stroke-linecap':'butt','stroke-linejoin':'miter'});
     const len=hook.getTotalLength(); hook.setAttribute('stroke-dasharray',`${len} ${len}`);
     sv(g,'circle',{cx:B[0],cy:B[1],r:34,fill:C.carbon});
@@ -493,10 +496,10 @@ function sideFig(svg,o={}){
       [fl,fh,ft].forEach(e=>e.setAttribute('opacity',fo.toFixed(2)));
     });
     const g1=T(sc,`left:${X0}px;top:380px;font-size:96px;color:${C.carbon}`,'LAS MANOS','a xb');
-    const g2=blk(sc,X0,490,86,`SOLO SON <span style="color:${C.ocre}">GANCHOS.</span>`,{pad:'16px 40px 18px 24px'});
+    const g2=blk(sc,X0,490,86,`SOLO SON <span style="color:${C.ocre}">GANCHOS.</span>`);
     track(sc,g1,io(b11,out,{d:110}));
     track(sc,g2,io(b11+BEAT/2,out,{d:0,dx:-220,f:2.8,z:0.7}));
-    const g3=T(sc,`left:${X0}px;top:1400px;font-size:44px;color:${C.carbon}`,'La fuerza la pone tu <span class="xb">espalda.</span>','a md');
+    const g3=T(sc,`left:${X0}px;top:1435px;font-size:44px;color:${C.carbon}`,'La fuerza la pone tu <span class="xb">espalda.</span>','a md');
     track(sc,g3,io(bt(11,3)+BEAT/2,out,{d:50}));
   }
 }
@@ -532,7 +535,7 @@ function sideFig(svg,o={}){
   const LP=layer(sc,60,770,0.42,1080,1400);
   const pu=backFig(LP.svg,{hang:true});
   track(sc,LP.d,t=>({o:seg(t,a+BEAT,a+BEAT+0.25)*(1-seg(t,b14-0.12,b14)),y:(1-spring(t-a-BEAT,2.2,0.7))*80}));
-  const lpL=legend(sc,X0,1360,C.carbon,'100% TU PESO',36,{bg:C.arena,fg:C.carbon});
+  const lpL=legend(sc,X0,1360,C.piedra,'100% TU PESO',36);
   track(sc,lpL,io(a+BEAT*1.5,b14,{d:40}));
   const lpT=T(sc,`left:${X0}px;top:1300px;font-size:36px;color:${C.carbon};letter-spacing:3px`,'DOMINADA','a xb');
   track(sc,lpT,io(a+BEAT*1.25,b14,{d:30}));

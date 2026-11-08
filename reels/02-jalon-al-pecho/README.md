@@ -3,7 +3,7 @@
 - **Archivo final:** `reel-jalon-al-pecho.mp4` · 1080×1920 · 30 fps · 45.6 s · H.264 + AAC
 - **Portada:** `portada.png` (BRAZOS / menos en la ESPALDA)
 - **Tipo:** alcance · estructura de identificación · cierre con "Guárdalo"
-- **Formato:** misma plantilla que el Reel 1 (100 BPM, compás de 2.4 s, Montserrat, paleta AR, logo solo al final, música y efectos hechos en código)
+- **Formato:** misma plantilla que el Reel 1 (100 BPM, compás de 2.4 s, Montserrat, paleta AR, logo solo al final, música y efectos hechos en código), pero con los textos sin rectángulo de fondo: solo tipografía. Sobre tu video, el texto va en hueso con una sombra suave para que se lea.
 
 ## Tu video de 9 s
 
