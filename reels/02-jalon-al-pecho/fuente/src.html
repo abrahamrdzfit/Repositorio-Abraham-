@@ -1,0 +1,901 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>Reel Jalón al pecho</title>
+<style>
+@font-face{font-family:'Montserrat';src:url(data:font/woff2;base64,__FONT__) format('woff2');font-weight:100 900;font-style:normal}
+:root{--carbon:#1B2013;--olivo:#384210;--piedra:#A39C87;--ocre:#C4882F;--arena:#EDE8DE;--hueso:#FBFAF7}
+*{margin:0;padding:0;box-sizing:border-box;border-radius:0!important}
+html,body{width:1080px;height:1920px;overflow:hidden;background:var(--hueso)}
+body{font-family:'Montserrat',sans-serif;font-weight:500;color:var(--carbon);-webkit-font-smoothing:antialiased}
+#stage{position:absolute;left:0;top:0;width:1080px;height:1920px;overflow:hidden}
+#cam{position:absolute;left:0;top:0;width:1080px;height:1920px;transform-origin:540px 900px}
+.sc{position:absolute;left:0;top:0;width:1080px;height:1920px;display:none}
+.a{position:absolute;white-space:nowrap;line-height:1;will-change:transform,opacity}
+.xb{font-weight:800}
+.md{font-weight:500}
+.vid{position:absolute;left:0;top:0;width:1080px;height:1920px;object-fit:cover;display:none;transform-origin:540px 960px}
+svg text{font-family:'Montserrat',sans-serif}
+#safe{position:absolute;inset:0;pointer-events:none;display:none}
+</style>
+</head>
+<body>
+<div id="stage">
+  <div id="bgA" style="position:absolute;inset:0;overflow:hidden"><img class="vid" id="vidA"></div>
+  <div id="bgEdge" style="position:absolute;inset:0"><div id="bgEdgeIn" style="position:absolute;inset:0;background:var(--olivo)"></div></div>
+  <div id="bgB" style="position:absolute;inset:0;overflow:hidden"><img class="vid" id="vidB"></div>
+  <div id="cam"></div>
+  <div id="safe">
+    <div style="position:absolute;left:0;top:0;width:1080px;height:250px;background:rgba(255,0,0,.25)"></div>
+    <div style="position:absolute;left:0;bottom:0;width:1080px;height:420px;background:rgba(255,0,0,.25)"></div>
+    <div style="position:absolute;right:0;top:0;width:150px;height:1920px;background:rgba(255,0,0,.25)"></div>
+  </div>
+</div>
+<svg width="0" height="0" style="position:absolute"><defs id="fx"></defs></svg>
+<script>
+'use strict';
+/* ---------- tiempo y música ---------- */
+const BPM=100, BEAT=60/BPM, BAR=4*BEAT, NBARS=19, DUR=NBARS*BAR; // 45.6 s
+const bt=(n,b=1)=>(n-1)*BAR+(b-1)*BEAT;           // compás n, tiempo b (1-indexado)
+const C={carbon:'#1B2013',olivo:'#384210',piedra:'#A39C87',ocre:'#C4882F',arena:'#EDE8DE',hueso:'#FBFAF7',
+         olivoClaro:'#9AA65A',ocreClaro:'#E2BC72',sombra:'#3A4230'};
+const X0=90, MAXW=800; // columna de contenido (zona segura: x<930, 250<y<1500)
+// tu video (cuadros JPG en frames/jalon). Si no existe, el gancho usa la animación.
+const VIDINFO=__VIDINFO__;
+
+/* ---------- easing ---------- */
+const clamp=(x,a=0,b=1)=>Math.min(b,Math.max(a,x));
+const lerp=(a,b,p)=>a+(b-a)*p;
+const seg=(t,a,b)=>clamp((t-a)/(b-a));
+const expOut=p=>p>=1?1:1-Math.pow(2,-10*p);
+const expIn=p=>p<=0?0:Math.pow(2,10*(p-1));
+const expInOut=p=>p<=0?0:p>=1?1:p<.5?Math.pow(2,20*p-10)/2:(2-Math.pow(2,-20*p+10))/2;
+const smooth=p=>p*p*(3-2*p);
+function spring(dt,f=2.6,z=0.62){
+  if(dt<=0) return 0;
+  const w=2*Math.PI*f, wd=w*Math.sqrt(1-z*z);
+  return 1-Math.exp(-z*w*dt)*(Math.cos(wd*dt)+z*w/wd*Math.sin(wd*dt));
+}
+// repetición del ejercicio a ritmo: jalón rápido, pausa abajo, regreso controlado (2 tiempos)
+function rep(t,t0,per=2*BEAT){
+  if(t<t0) return 0;
+  const u=((t-t0)%per)/per;
+  if(u<0.34) return 1-Math.pow(1-u/0.34,3);
+  if(u<0.48) return 1;
+  return 1-smooth((u-0.48)/0.52);
+}
+function mix(a,b,p){
+  p=clamp(p); const h=s=>[1,3,5].map(i=>parseInt(s.slice(i,i+2),16));
+  const x=h(a), y=h(b); return '#'+x.map((v,i)=>Math.round(lerp(v,y[i],p)).toString(16).padStart(2,'0')).join('');
+}
+
+/* ---------- escenas ---------- */
+const cam=document.getElementById('cam');
+const SCENES=[
+  {id:'hook',  a:bt(1),  b:bt(5),  bg:C.arena, vid:VIDINFO},
+  {id:'p1',    a:bt(5),  b:bt(8),  bg:C.hueso},
+  {id:'loop1', a:bt(8),  b:bt(9),  bg:C.carbon},
+  {id:'p2',    a:bt(9),  b:bt(12), bg:C.arena},
+  {id:'loop2', a:bt(12), b:bt(13), bg:C.carbon},
+  {id:'p3',    a:bt(13), b:bt(15), bg:C.hueso},
+  {id:'close', a:bt(15), b:bt(17), bg:C.arena},
+  {id:'cta',   a:bt(17), b:DUR+1,  bg:C.hueso},
+];
+SCENES.forEach(s=>{s.root=document.createElement('div');s.root.className='sc';cam.appendChild(s.root);s.tracks=[];s.props=[];});
+const S=Object.fromEntries(SCENES.map(s=>[s.id,s]));
+
+function $(parent,css,html,cls='a'){
+  const e=document.createElement('div');e.className=cls;
+  if(css) e.style.cssText=css; if(html!=null) e.innerHTML=html;
+  (parent.root||parent).appendChild(e); return e;
+}
+const fx=document.getElementById('fx'); let nfx=0;
+function track(sc,el,fn){
+  const id='mb'+(nfx++);
+  fx.insertAdjacentHTML('beforeend',`<filter id="${id}" x="-60%" y="-60%" width="220%" height="220%" color-interpolation-filters="sRGB"><feGaussianBlur stdDeviation="0 0"/></filter>`);
+  sc.tracks.push({el,fn,id,blur:fx.lastElementChild.firstElementChild}); return el;
+}
+const prop=(sc,fn)=>sc.props.push(fn);
+function applyTrack(tr,t){
+  const h=1/240, s=tr.fn(t), a=tr.fn(t-h), b=tr.fn(t+h);
+  const x=s.x||0, y=s.y||0, k=s.s??1, sx=(s.sx??1)*k, sy=(s.sy??1)*k, o=clamp(s.o??1), r=s.r||0;
+  const el=tr.el;
+  el.style.transform=`translate(${x.toFixed(2)}px,${y.toFixed(2)}px) rotate(${r}deg) scale(${sx.toFixed(4)},${sy.toFixed(4)})`;
+  el.style.opacity=o.toFixed(3);
+  el.style.visibility=o<0.003?'hidden':'visible';
+  const vx=((b.x||0)-(a.x||0))/(2*h), vy=((b.y||0)-(a.y||0))/(2*h);
+  const K=1/320;
+  const bx=Math.min(40,Math.abs(vx)*K/Math.max(.2,Math.abs(sx))), by=Math.min(40,Math.abs(vy)*K/Math.max(.2,Math.abs(sy)));
+  if(bx>0.6||by>0.6){tr.blur.setAttribute('stdDeviation',`${bx.toFixed(2)} ${by.toFixed(2)}`);el.style.filter=`url(#${tr.id})`;}
+  else el.style.filter='none';
+}
+
+/* ---------- movimientos estándar ---------- */
+function io(at,out,o={}){
+  const d=o.d??90, dx=o.dx??0, f=o.f??2.6, z=o.z??0.62, ex=o.ex??0.22, exY=o.exY??-240, exX=o.exX??0, s0=o.s0;
+  return t=>{
+    const e=spring(t-at,f,z), xp=expIn(seg(t,out-ex,out));
+    const st={x:(1-e)*dx+xp*exX, y:(1-e)*d+xp*exY, o:seg(t,at,at+0.08)*(1-seg(t,out-ex*0.45,out))};
+    if(s0!=null) st.s=lerp(s0,1,e);
+    return st;
+  };
+}
+// aparece y se queda (sin salida propia)
+const fade=(at,out)=>t=>({o:seg(t,at,at+0.25)*(1-seg(t,out-0.12,out))});
+const CUT=(c)=>`clip-path:polygon(0 0,calc(100% - ${c}px) 0,100% ${c}px,100% 100%,0 100%)`;
+const CUT2=(c)=>`clip-path:polygon(0 0,calc(100% - ${c}px) 0,100% ${c}px,100% 100%,${c}px 100%,0 calc(100% - ${c}px))`;
+const T=(sc,css,html,cls='a')=>$(sc,css,html,cls);
+function pointTag(sc,num,word,at=sc.a,out=sc.b){
+  const el=T(sc,`left:${X0}px;top:280px;color:${C.olivo};font-size:36px;letter-spacing:3px`,
+    `<span class="xb">${num}<span style="opacity:.55">/03</span></span>&nbsp;&nbsp;<span class="md">${word}</span>`);
+  track(sc,el,io(at,out,{dx:-60,d:0}));
+}
+// texto solo (sin fondo). Sobre tu video va en hueso con sombra para que se lea.
+const VIDTXT=`color:${C.hueso};text-shadow:0 4px 18px rgba(0,0,0,.55),0 2px 4px rgba(0,0,0,.6);`;
+function blk(sc,x,y,fs,html,o={}){
+  const col=o.onVid&&VIDINFO?VIDTXT:`color:${o.fg||C.carbon};`;
+  const e=T(sc,`left:${x}px;top:${y}px;${col}font-size:${fs}px;${o.ls?`letter-spacing:${o.ls}px;`:''}`,html,'a '+(o.cls||'xb'));
+  if(o.fit!==false) e.dataset.fit=o.fit||MAXW;
+  return e;
+}
+function strike(sc,x,y,w,at,out,col=C.carbon,h=14){
+  const e=T(sc,`left:${x}px;top:${y}px;width:${w}px;height:${h}px;background:${col};transform-origin:0 50%`,'');
+  track(sc,e,t=>({...io(at,out,{d:0})(t),sx:expOut(seg(t,at,at+0.35))}));
+  return e;
+}
+// chip con cuadrito de color (leyenda de músculo)
+function legend(sc,x,y,col,txt,fs=44,o={}){
+  const q=fs*0.7;
+  return T(sc,`left:${x}px;top:${y}px;color:${o.fg||C.carbon};font-size:${fs}px;display:flex;align-items:center;gap:18px`,
+    `<span style="display:inline-block;width:${q}px;height:${q}px;background:${col}"></span><span class="xb">${txt}</span>`);
+}
+const checkSvg=(c,s=56)=>`<svg width="${s}" height="${s}" viewBox="0 0 56 56"><polyline points="8,30 22,44 48,14" fill="none" stroke="${c}" stroke-width="10" stroke-linecap="square" stroke-linejoin="miter"/></svg>`;
+const crossSvg=(c,s=56)=>`<svg width="${s}" height="${s}" viewBox="0 0 56 56"><path d="M10 10 L46 46 M46 10 L10 46" stroke="${c}" stroke-width="10" stroke-linecap="square"/></svg>`;
+
+/* =====================================================================
+   FIGURAS (SVG). Coordenadas locales de 1080×1100; el contenedor escala.
+   ===================================================================== */
+const NS='http://www.w3.org/2000/svg';
+function sv(parent,tag,attrs={}){const e=document.createElementNS(NS,tag);for(const k in attrs)e.setAttribute(k,attrs[k]);parent.appendChild(e);return e;}
+function layer(sc,x,y,s=1,w=1080,h=1100){
+  const d=T(sc,`left:${x}px;top:${y}px;width:${w*s}px;height:${h*s}px;transform-origin:50% 50%`,'');
+  const g=document.createElementNS(NS,'svg');
+  g.setAttribute('width',w*s);g.setAttribute('height',h*s);g.setAttribute('viewBox',`0 0 ${w} ${h}`);
+  g.style.cssText='position:absolute;left:0;top:0;overflow:visible';d.appendChild(g);return {d,svg:g};
+}
+const P=pts=>pts.map(p=>p[0].toFixed(1)+','+p[1].toFixed(1)).join(' ');
+const add=(a,b,k=1)=>[a[0]+b[0]*k,a[1]+b[1]*k];
+const mir=p=>[1080-p[0],p[1]];
+const rad=d=>d*Math.PI/180;
+const setL=(e,a,b)=>{e.setAttribute('x1',a[0].toFixed(1));e.setAttribute('y1',a[1].toFixed(1));e.setAttribute('x2',b[0].toFixed(1));e.setAttribute('y2',b[1].toFixed(1));};
+function arrowHead(g,col,sz=34){return sv(g,'polygon',{points:`0,0 ${-sz},${-sz*0.62} ${-sz},${sz*0.62}`,fill:col});}
+const placeHead=(h,p,ang)=>h.setAttribute('transform',`translate(${p[0].toFixed(1)},${p[1].toFixed(1)}) rotate(${(ang*180/Math.PI).toFixed(1)})`);
+
+/* ----- vista de espalda: jalón al pecho (o dominada colgando) ----- */
+const BK={S:[425,470],L1:175,L2:165};
+function backAt(p){ // posiciones del lado izquierdo en función del avance del jalón p (0 arriba, 1 abajo)
+  const th=rad(lerp(25,150,p)), ph=rad(lerp(25,-4,p));
+  const S=BK.S, u=[-Math.sin(th),-Math.cos(th)], E=add(S,u,BK.L1), H=add(E,[-Math.sin(ph),-Math.cos(ph)],BK.L2);
+  return {S,u,E,H,th};
+}
+function backFig(svg,o={}){
+  const body=o.body||C.carbon, shade=o.shade||C.sombra;
+  const g=sv(svg,'g');
+  const cable=o.hang?null:sv(g,'line',{x1:540,y1:110,x2:540,y2:0,stroke:C.piedra,'stroke-width':8});
+  const bar=sv(g,'line',{stroke:body,'stroke-width':20});
+  const fig=sv(g,'g');
+  const extra=sv(fig,'g'); // capa para trazos de trayectoria
+  if(o.hang){
+    [[[492,900],[478,1130],[486,1320]],[[588,900],[602,1130],[594,1320]]].forEach(L=>{
+      sv(fig,'polyline',{points:P(L),fill:'none',stroke:body,'stroke-width':66,'stroke-linecap':'round','stroke-linejoin':'round'});
+    });
+  } else sv(fig,'rect',{x:360,y:918,width:360,height:46,fill:C.piedra});
+  sv(fig,'polygon',{fill:body,points:P([[440,445],[640,445],[690,482],[665,560],[615,832],[465,832],[415,560],[390,482]])});
+  sv(fig,'polygon',{fill:body,points:P([[462,828],[618,828],[642,922],[438,922]])});
+  const scap=[0,1].map(()=>sv(fig,'polygon',{fill:shade}));
+  const trap=sv(fig,'polygon',{fill:shade});
+  const lat=[0,1].map(()=>sv(fig,'polygon',{fill:shade}));
+  const spine=sv(fig,'line',{x1:540,y1:440,x2:540,y2:820,stroke:shade,'stroke-width':8});
+  const teres=[0,1].map(()=>sv(fig,'line',{stroke:shade,'stroke-width':30,'stroke-linecap':'round'}));
+  const up=[0,1].map(()=>sv(fig,'line',{stroke:body,'stroke-width':58,'stroke-linecap':'round'}));
+  const bic=[0,1].map(()=>sv(fig,'line',{stroke:body,'stroke-width':30,'stroke-linecap':'round'}));
+  const fo=[0,1].map(()=>sv(fig,'line',{stroke:body,'stroke-width':46,'stroke-linecap':'round'}));
+  const hand=[0,1].map(()=>sv(fig,'circle',{r:27,fill:body}));
+  const delt=[0,1].map(()=>sv(fig,'circle',{r:44,fill:body}));
+  sv(fig,'rect',{x:512,y:372,width:56,height:80,fill:body});
+  sv(fig,'circle',{cx:540,cy:330,r:58,fill:body});
+  const api={g,fig,extra,p:0,
+    update(p,hl={}){
+      api.p=p;
+      const L=backAt(p), sx=10*p, sy=14*p;
+      const IA=[478+sx,580+sy];
+      const scL=[[455+sx,485+sy],[522+sx,492+sy],IA];
+      const latL=[add(L.S,L.u,48),[482+sx*.5,548+sy*.6],[536,578],[536,800],[470,838],[418,650],[410,540]];
+      const trapP=[[540,432],[448+sx,470+sy],[520+sx,505+sy],[540,690],[560-sx,505+sy],[632-sx,470+sy]];
+      const side=(k,f)=>k?f.map?f.map(mir):mir(f):f;
+      const pulse=0.78+0.22*p;
+      for(let k=0;k<2;k++){
+        const M=q=>k?mir(q):q;
+        scap[k].setAttribute('points',P(scL.map(M)));
+        lat[k].setAttribute('points',P(latL.map(M)));
+        lat[k].setAttribute('fill',mix(shade,C.ocre,(hl.lat||0)*pulse));
+        setL(teres[k],M(IA),M(add(L.S,L.u,72)));
+        teres[k].setAttribute('stroke',mix(shade,C.olivoClaro,hl.teres||0));
+        setL(up[k],M(L.S),M(L.E));
+        setL(bic[k],M(add(L.S,L.u,62)),M(add(L.S,L.u,150)));
+        bic[k].setAttribute('stroke',mix(body,hl.bicCol||C.ocreClaro,hl.bic||0));
+        setL(fo[k],M(L.E),M(L.H));
+        hand[k].setAttribute('cx',M(L.H)[0]);hand[k].setAttribute('cy',L.H[1]);
+        delt[k].setAttribute('cx',M(L.S)[0]);delt[k].setAttribute('cy',L.S[1]);
+      }
+      trap.setAttribute('points',P(trapP));
+      trap.setAttribute('fill',mix(shade,C.piedra,hl.trap||0));
+      if(o.hang){
+        const H0=backAt(0).H[1], dy=H0-L.H[1];
+        fig.setAttribute('transform',`translate(0,${dy.toFixed(1)})`);
+        extra.setAttribute('transform',`translate(0,${dy.toFixed(1)})`);
+        setL(bar,[180,H0],[900,H0]);
+      } else {
+        setL(bar,[L.H[0]-70,L.H[1]],[1080-L.H[0]+70,L.H[1]]);
+        cable.setAttribute('y2',L.H[1].toFixed(1));
+      }
+    }};
+  api.update(0);
+  return api;
+}
+
+/* ----- vista lateral, sentado en la polea (mira a la derecha) ----- */
+const SD={S:[520,580],L1:175,L2:165,POCKET:[452,928]};
+function sideAt(p,bad=false){
+  // bien: el codo baja y va hacia atrás (a la bolsa). mal: el codo se queda adelante y jalas con la mano
+  const a=rad(bad?lerp(8,150,p):lerp(8,195,p)), b=rad(bad?lerp(8,-6,p):lerp(8,44,p));
+  const S=[SD.S[0]+(bad?6*p:0),SD.S[1]-(bad?16*p:0)];
+  const u=[Math.sin(a),-Math.cos(a)], E=add(S,u,SD.L1), H=add(E,[Math.sin(b),-Math.cos(b)],SD.L2);
+  return {S,u,E,H};
+}
+function sideFig(svg,o={}){
+  const body=o.body||C.carbon, shade=o.shade||C.sombra;
+  const g=sv(svg,'g');
+  const cable=sv(g,'line',{x1:560,y1:120,x2:560,y2:0,stroke:C.piedra,'stroke-width':8});
+  const bar=sv(g,'rect',{width:70,height:22,fill:body});
+  // máquina: asiento, poste, rodillo de muslos
+  sv(g,'rect',{x:350,y:938,width:300,height:42,fill:C.piedra});
+  sv(g,'rect',{x:478,y:980,width:44,height:120,fill:C.piedra});
+  sv(g,'rect',{x:640,y:818,width:150,height:44,fill:C.piedra});
+  const extra=sv(g,'g');
+  sv(g,'polyline',{points:P([[500,898],[722,890],[738,1088],[808,1094]]),fill:'none',stroke:body,'stroke-width':66,'stroke-linecap':'round','stroke-linejoin':'round'});
+  const torso=sv(g,'polygon',{fill:body});
+  const lat=sv(g,'polygon',{fill:shade});
+  const head=sv(g,'circle',{r:56,fill:body});
+  const neck=sv(g,'line',{stroke:body,'stroke-width':50});
+  const up=sv(g,'line',{stroke:body,'stroke-width':58,'stroke-linecap':'round'});
+  const bic=sv(g,'line',{stroke:body,'stroke-width':32,'stroke-linecap':'round'});
+  const fo=sv(g,'line',{stroke:body,'stroke-width':46,'stroke-linecap':'round'});
+  const hand=sv(g,'circle',{r:27,fill:body});
+  const api={g,extra,
+    update(p,hl={}){
+      const bad=!!hl.bad, L=sideAt(p,bad);
+      const lean=bad?10*p:0; // al jalar con brazos se va hacia atrás y sube hombros
+      const tp=[[455-lean,522+(bad?-14*p:0)],[548,515+(bad?-16*p:0)],[592,600],[578,860],[562,905],[446,905],[432,800],[440-lean*.5,600]];
+      torso.setAttribute('points',P(tp));
+      const I=add(L.S,L.u,42);
+      lat.setAttribute('points',P([I,[552,665],[528,820],[458,884],[438,720],[452-lean*.5,598]]));
+      lat.setAttribute('fill',mix(shade,C.ocre,(hl.lat||0)*(0.78+0.22*p)));
+      head.setAttribute('cx',(505+(bad?18*p:0)).toFixed(1));head.setAttribute('cy',(452+(bad?-4*p:0)).toFixed(1));
+      setL(neck,[510,530],[505+(bad?14*p:0),470]);
+      setL(up,L.S,L.E); setL(fo,L.E,L.H);
+      setL(bic,add(L.S,L.u,55),add(L.S,L.u,150));
+      bic.setAttribute('stroke',mix(body,hl.bicCol||C.ocre,hl.bic||0));
+      hand.setAttribute('cx',L.H[0].toFixed(1));hand.setAttribute('cy',L.H[1].toFixed(1));
+      bar.setAttribute('x',(L.H[0]-35).toFixed(1));bar.setAttribute('y',(L.H[1]-11).toFixed(1));
+      cable.setAttribute('x2',L.H[0].toFixed(1));cable.setAttribute('x1',L.H[0].toFixed(1));cable.setAttribute('y2',L.H[1].toFixed(1));
+      return L;
+    }};
+  api.update(0);
+  return api;
+}
+
+/* =====================================================================
+   1 · GANCHO + INTRO (compases 1–4) sobre tu video, o la animación si no hay
+   ===================================================================== */
+{
+  const sc=S.hook, out=sc.b, b3=bt(3);
+  // animación de respaldo: jalando con los brazos (bíceps encendido, espalda apagada)
+  if(!VIDINFO){
+    const L=layer(sc,175,770,0.64);
+    const f=sideFig(L.svg);
+    const q=sv(L.svg,'text',{x:330,y:700,'font-size':150,'font-weight':800,fill:C.olivo,'text-anchor':'middle'});q.textContent='?';
+    const xr=sv(L.svg,'g');
+    track(sc,L.d,t=>({o:seg(t,0,0.2)*(1-seg(t,out-0.1,out)),y:(1-spring(t,2,0.7))*60}));
+    prop(sc,t=>{
+      const p=rep(t,0.15);
+      f.update(p,{bad:true,bic:seg(t,bt(2),bt(2)+0.3),lat:0});
+      q.setAttribute('opacity',seg(t,bt(2,3),bt(2,3)+0.15).toFixed(2));
+      q.setAttribute('transform',`translate(0,${(-10*Math.sin(t*5)).toFixed(1)})`);
+    });
+  }
+  const tag=blk(sc,X0,300,40,'SEGURO TE HA PASADO ESTO:',{ls:2,onVid:1});
+  track(sc,tag,io(bt(1),b3,{dx:-60,d:0}));
+  ['HACES JALÓN','AL PECHO…'].forEach((w,i)=>{
+    const e=blk(sc,X0,420+i*135,112,w,{onVid:1});
+    track(sc,e,io(bt(1)+BEAT/4+i*BEAT/4,bt(2),{d:140}));
+  });
+  const s1=blk(sc,X0,420,58,'Y LO SIENTES TODO EN LOS',{onVid:1});
+  track(sc,s1,io(bt(2),b3,{d:80}));
+  const s2=blk(sc,X0,520,150,`<span style="color:${C.ocre}">BRAZOS</span>`,{onVid:1});
+  track(sc,s2,io(bt(2)+BEAT/4,b3,{d:140,s0:0.8}));
+  const s3=blk(sc,X0,720,58,`MENOS EN LA <span style="color:${C.ocre}">ESPALDA.</span>`,{onVid:1});
+  track(sc,s3,io(bt(2,3),b3,{d:80}));
+  // intro
+  const i1=blk(sc,X0,380,64,'ESO PASA PORQUE',{onVid:1});
+  const i2=blk(sc,X0,465,64,'NADIE TE EXPLICÓ',{onVid:1});
+  track(sc,i1,io(b3,out,{d:90}));
+  track(sc,i2,io(b3+BEAT/4,out,{d:90}));
+  const i3=blk(sc,X0,575,130,`<span style="color:${C.ocre}">PARA QUÉ ES</span>`,{onVid:1});
+  const i4=blk(sc,X0,730,64,'EL EJERCICIO.',{onVid:1});
+  track(sc,i3,io(bt(4),out,{d:140}));
+  track(sc,i4,io(bt(4)+BEAT/2,out,{d:90}));
+}
+
+/* =====================================================================
+   2 · 01/03 QUÉ TRABAJA (compases 5–7): vista de espalda
+   ===================================================================== */
+{
+  const sc=S.p1, a=sc.a, b6=bt(6), b7=bt(7), out=sc.b;
+  pointTag(sc,'01','QUÉ TRABAJA');
+  const FS=0.8, FX=540-540*FS, FY=640;
+  const L=layer(sc,FX,FY,FS);
+  const f=backFig(L.svg);
+  // la "V": de los hombros a la cintura + flecha de anchura
+  const vg=sv(L.svg,'g',{opacity:0});
+  const v1=sv(vg,'polyline',{points:P([[330,450],[540,1010],[750,450]]),fill:'none',stroke:C.ocre,'stroke-width':12,'stroke-dasharray':'26 18'});
+  const wl=sv(vg,'line',{x1:300,y1:400,x2:780,y2:400,stroke:C.olivo,'stroke-width':10});
+  const wa=arrowHead(vg,C.olivo), wb=arrowHead(vg,C.olivo);
+  placeHead(wa,[300,400],Math.PI); placeHead(wb,[780,400],0);
+  track(sc,L.d,t=>({o:seg(t,a+0.1,a+0.35)*(1-seg(t,out-0.12,out)),y:(1-spring(t-a,2,0.7))*80}));
+  prop(sc,t=>{
+    const p=rep(t,a+0.3);
+    const lat=t<b7?seg(t,a+BEAT,a+BEAT+0.3):lerp(1,0.45,seg(t,b7,b7+0.3));
+    f.update(p,{lat,
+      teres:seg(t,bt(7)+BEAT/2,bt(7)+BEAT/2+0.25),
+      trap:seg(t,bt(7,2)+BEAT/2,bt(7,2)+BEAT/2+0.25),
+      bic:seg(t,bt(7,3)+BEAT/2,bt(7,3)+BEAT/2+0.25)});
+    const vo=seg(t,b6+BEAT,b6+BEAT+0.3)*(1-seg(t,b7-0.2,b7));
+    vg.setAttribute('opacity',vo.toFixed(3));
+    const ws=1+0.06*Math.sin((t-b6)*Math.PI/BEAT)*vo;
+    vg.setAttribute('transform',`translate(540,700) scale(${ws.toFixed(4)},1) translate(-540,-700)`);
+    v1.setAttribute('stroke-dashoffset',(-(t*60)).toFixed(1));
+  });
+  // compás 5
+  const t1=T(sc,`left:${X0}px;top:380px;font-size:132px;color:${C.olivo};letter-spacing:-3px`,'JALÓN VERTICAL','a xb'); t1.dataset.fit=MAXW;
+  track(sc,t1,io(a,b6,{d:140}));
+  const t2=legend(sc,X0,540,C.ocre,'OBJETIVO: DORSAL ANCHO',46); t2.dataset.fit=MAXW;
+  track(sc,t2,io(a+BEAT,b6,{d:0,dx:-200,f:2.8,z:0.7}));
+  // compás 6
+  const v0=T(sc,`left:${X0}px;top:380px;font-size:60px;color:${C.carbon}`,'El dorsal te da la','a md');
+  track(sc,v0,io(b6,b7,{d:70}));
+  const v2=T(sc,`left:${X0}px;top:455px;font-size:104px;color:${C.carbon}`,`ESPALDA ANCHA:`,'a xb'); v2.dataset.fit=MAXW;
+  track(sc,v2,io(b6+BEAT/4,b7,{d:110}));
+  const v3=T(sc,`left:${X0}px;top:565px;font-size:72px;color:${C.ocre}`,'LA “V”','a xb');
+  track(sc,v3,io(b6+BEAT,b7,{d:80}));
+  // compás 7: también trabajan
+  const m0=T(sc,`left:${X0}px;top:370px;font-size:56px;color:${C.carbon}`,'También trabajan:','a md');
+  track(sc,m0,io(b7,out,{d:60}));
+  [[C.olivoClaro,'REDONDO MAYOR'],[C.piedra,'TRAPECIO MEDIO E INFERIOR'],[C.ocreClaro,'BÍCEPS (DE APOYO)']].forEach(([c,w],i)=>{
+    const e=legend(sc,X0,448+i*88,c,w,38); e.dataset.fit=MAXW;
+    track(sc,e,io(bt(7)+BEAT/2+i*BEAT,out,{d:0,dx:-200,f:2.8,z:0.7}));
+  });
+}
+
+/* =====================================================================
+   3 · BUCLE 1 (compás 8)
+   ===================================================================== */
+{
+  const sc=S.loop1, a=sc.a, out=sc.b;
+  const l1=T(sc,`left:${X0}px;top:420px;font-size:62px;color:${C.hueso}`,'Pero si no sabes','a md');
+  const l2=T(sc,`left:${X0}px;top:505px;font-size:86px;color:${C.hueso}`,'QUÉ MOVIMIENTO','a xb'); l2.dataset.fit=MAXW;
+  const l3=T(sc,`left:${X0}px;top:605px;font-size:86px;color:${C.hueso}`,'HACE EL DORSAL,','a xb'); l3.dataset.fit=MAXW;
+  const l4=blk(sc,X0,770,74,'NUNCA LO VAS A SENTIR.',{fg:C.ocre});
+  const l5=T(sc,`left:${X0}px;top:960px;font-size:70px;color:${C.olivoClaro}`,'Te lo explico.','a xb');
+  track(sc,l1,io(a,out,{d:70}));
+  track(sc,l2,io(a+BEAT/4,out,{d:100}));
+  track(sc,l3,io(a+BEAT/2,out,{d:100}));
+  track(sc,l4,io(bt(8,3),out,{d:0,dx:-240,f:2.8,z:0.7}));
+  track(sc,l5,io(bt(8,4),out,{d:70}));
+}
+
+/* =====================================================================
+   4 · 02/03 CÓMO SE MUEVE (compases 9–11): biomecánica
+   ===================================================================== */
+{
+  const sc=S.p2, a=sc.a, b10=bt(10), b11=bt(11), out=sc.b;
+  pointTag(sc,'02','CÓMO SE MUEVE');
+  // ---- compás 9: vista de espalda, trayectoria del codo (aducción del hombro)
+  {
+    const FS=0.8, L=layer(sc,540-540*FS,660,FS);
+    const f=backFig(L.svg);
+    const arcs=[0,1].map(()=>sv(f.extra,'polyline',{fill:'none',stroke:C.ocre,'stroke-width':12,'stroke-linecap':'round'}));
+    const heads=[0,1].map(()=>arrowHead(f.extra,C.ocre,40));
+    const pts=[];for(let i=0;i<=40;i++){const q=backAt(i/40);pts.push(add(q.E,q.u,26));}
+    track(sc,L.d,t=>({o:seg(t,a+0.1,a+0.35)*(1-seg(t,b10-0.12,b10)),y:(1-spring(t-a,2,0.7))*80}));
+    prop(sc,t=>{
+      const p=rep(t,a+0.6);
+      f.update(p,{lat:seg(t,a+0.3,a+0.6)});
+      const d=expInOut(seg(t,a+BEAT,a+2*BEAT)), n=Math.max(2,Math.round(d*40));
+      for(let k=0;k<2;k++){
+        const M=q=>k?mir(q):q, pp=pts.slice(0,n).map(M);
+        arcs[k].setAttribute('points',P(pp));
+        const A=pp[pp.length-2], B=pp[pp.length-1];
+        placeHead(heads[k],B,Math.atan2(B[1]-A[1],B[0]-A[0]));
+        heads[k].setAttribute('opacity',d>0.02?1:0); arcs[k].setAttribute('opacity',d>0.02?1:0);
+      }
+    });
+    const h1=T(sc,`left:${X0}px;top:380px;font-size:60px;color:${C.carbon}`,'Lleva el brazo','a md');
+    const h2=T(sc,`left:${X0}px;top:455px;font-size:96px;color:${C.carbon}`,'DE ARRIBA → ABAJO','a xb'); h2.dataset.fit=MAXW;
+    const h3=T(sc,`left:${X0}px;top:560px;font-size:70px;color:${C.ocre}`,'Y HACIA EL CUERPO','a xb'); h3.dataset.fit=MAXW;
+    track(sc,h1,io(a,b10,{d:70}));
+    track(sc,h2,io(a+BEAT/4,b10,{d:110}));
+    track(sc,h3,io(a+BEAT,b10,{d:80}));
+  }
+  // ---- compás 10: vista lateral, codos a las bolsas de atrás
+  {
+    const FS=0.78, FX=250, FY=640, L=layer(sc,FX,FY,FS);
+    const f=sideFig(L.svg);
+    const trail=sv(f.extra,'line',{stroke:C.ocre,'stroke-width':10,'stroke-dasharray':'22 16','stroke-linecap':'butt'});
+    const th=arrowHead(f.extra,C.ocre,36);
+    const ring=sv(f.extra,'circle',{cx:SD.POCKET[0],cy:SD.POCKET[1],r:34,fill:'none',stroke:C.ocre,'stroke-width':10});
+    const dot=sv(f.extra,'circle',{cx:SD.POCKET[0],cy:SD.POCKET[1],r:12,fill:C.ocre});
+    track(sc,L.d,t=>({o:seg(t,b10,b10+0.25)*(1-seg(t,b11-0.12,b11)),x:(1-spring(t-b10,2.2,0.7))*120}));
+    prop(sc,t=>{
+      const p=rep(t,b10+BEAT/2);
+      const q=f.update(p,{lat:1});
+      const vis=seg(t,b10+BEAT/2,b10+BEAT/2+0.2);
+      const st=add(q.E,q.u,10), en=SD.POCKET, ang=Math.atan2(en[1]-st[1],en[0]-st[0]);
+      const dd=Math.hypot(en[0]-st[0],en[1]-st[1]);
+      trail.setAttribute('opacity',(vis*(dd>70?1:0)).toFixed(2)); th.setAttribute('opacity',(vis*(dd>70?1:0)).toFixed(2));
+      const tip=add(en,[Math.cos(ang),Math.sin(ang)],-44);
+      setL(trail,st,tip); placeHead(th,tip,ang);
+      trail.setAttribute('stroke-dashoffset',(-(t*90)).toFixed(1));
+      const r=1+0.25*(p>0.95?1:0)*Math.sin(t*20)**2;
+      ring.setAttribute('r',(34*r).toFixed(1)); ring.setAttribute('opacity',vis.toFixed(2)); dot.setAttribute('opacity',vis.toFixed(2));
+    });
+    const c1=T(sc,`left:${X0}px;top:380px;font-size:60px;color:${C.carbon}`,'Piensa en llevar','a md');
+    const c2=T(sc,`left:${X0}px;top:455px;font-size:96px;color:${C.carbon}`,'LOS CODOS A TUS','a xb'); c2.dataset.fit=MAXW;
+    const c3=T(sc,`left:${X0}px;top:560px;font-size:96px;color:${C.ocre}`,'BOLSAS DE ATRÁS','a xb'); c3.dataset.fit=MAXW;
+    track(sc,c1,io(b10,b11,{d:70}));
+    track(sc,c2,io(b10+BEAT/4,b11,{d:110}));
+    track(sc,c3,io(b10+BEAT/2,b11,{d:110}));
+    const pk=legend(sc,X0,1380,C.ocre,'BOLSA DE ATRÁS',36);
+    track(sc,pk,io(b10+BEAT,b11,{d:0,dx:-160}));
+    const no=T(sc,`left:${X0}px;top:1460px;font-size:40px;color:${C.carbon};display:flex;align-items:center;gap:14px`,`${crossSvg(C.carbon,36)}<span class="md">no jalar con las manos</span>`);
+    track(sc,no,io(bt(10,3),b11,{d:40}));
+    pk.style.top='1380px';
+  }
+  // ---- compás 11: las manos son ganchos
+  {
+    const L=layer(sc,0,600,1,1080,900);
+    const g=L.svg, B=[420,330];
+    sv(g,'line',{x1:540,y1:120,x2:540,y2:B[1]-34,stroke:C.piedra,'stroke-width':8});
+    sv(g,'rect',{x:120,y:B[1]-34,width:840,height:68,fill:C.carbon});
+    sv(g,'line',{x1:350,y1:760,x2:350,y2:B[1]+60,stroke:C.carbon,'stroke-width':76});
+    const hook=sv(g,'path',{d:`M 350 ${B[1]+80} L 350 ${B[1]} A 70 70 0 0 1 490 ${B[1]} L 490 ${B[1]+60}`,fill:'none',stroke:C.ocre,'stroke-width':58,'stroke-linecap':'butt','stroke-linejoin':'miter'});
+    const len=hook.getTotalLength(); hook.setAttribute('stroke-dasharray',`${len} ${len}`);
+    sv(g,'circle',{cx:B[0],cy:B[1],r:34,fill:C.carbon});
+    // flecha de fuerza: abajo, desde el codo
+    const fl=sv(g,'line',{x1:660,y1:460,x2:660,y2:680,stroke:C.olivo,'stroke-width':14});
+    const fh=arrowHead(g,C.olivo,40); placeHead(fh,[660,700],Math.PI/2);
+    const ft=sv(g,'text',{x:700,y:590,'font-size':44,'font-weight':800,fill:C.olivo}); ft.textContent='JALA EL CODO';
+    track(sc,L.d,t=>({o:seg(t,b11,b11+0.2)*(1-seg(t,out-0.12,out)),y:(1-spring(t-b11,2,0.7))*80}));
+    prop(sc,t=>{
+      const d=expOut(seg(t,b11+BEAT/4,b11+BEAT*1.25));
+      hook.setAttribute('stroke-dashoffset',((1-d)*len).toFixed(1));
+      const pull=rep(t,bt(11,3))*40;
+      L.svg.setAttribute('style',`position:absolute;left:0;top:${pull.toFixed(1)}px;overflow:visible`);
+      const fo=seg(t,bt(11,3),bt(11,3)+0.2);
+      [fl,fh,ft].forEach(e=>e.setAttribute('opacity',fo.toFixed(2)));
+    });
+    const g1=T(sc,`left:${X0}px;top:380px;font-size:96px;color:${C.carbon}`,'LAS MANOS','a xb');
+    const g2=blk(sc,X0,490,86,`SOLO SON <span style="color:${C.ocre}">GANCHOS.</span>`);
+    track(sc,g1,io(b11,out,{d:110}));
+    track(sc,g2,io(b11+BEAT/2,out,{d:0,dx:-220,f:2.8,z:0.7}));
+    const g3=T(sc,`left:${X0}px;top:1435px;font-size:44px;color:${C.carbon}`,'La fuerza la pone tu <span class="xb">espalda.</span>','a md');
+    track(sc,g3,io(bt(11,3)+BEAT/2,out,{d:50}));
+  }
+}
+
+/* =====================================================================
+   5 · BUCLE 2 (compás 12)
+   ===================================================================== */
+{
+  const sc=S.loop2, a=sc.a, out=sc.b;
+  const l1=T(sc,`left:${X0}px;top:420px;font-size:62px;color:${C.hueso}`,'Y hay una razón extra','a md'); l1.dataset.fit=MAXW;
+  const l2=T(sc,`left:${X0}px;top:505px;font-size:86px;color:${C.hueso}`,'POR LA QUE','a xb');
+  const l3=T(sc,`left:${X0}px;top:605px;font-size:150px;color:${C.ocre}`,'VALE ORO','a xb'); l3.dataset.fit=MAXW;
+  const l4=T(sc,`left:${X0}px;top:820px;font-size:56px;color:${C.hueso};line-height:1.3`,`sobre todo si todavía<br>no te salen <span class="xb" style="color:${C.olivoClaro}">DOMINADAS.</span>`,'a md');
+  track(sc,l1,io(a,out,{d:70}));
+  track(sc,l2,io(a+BEAT/4,out,{d:100}));
+  track(sc,l3,io(a+BEAT/2,out,{d:140,s0:0.85}));
+  track(sc,l4,io(bt(12,3),out,{d:70}));
+}
+
+/* =====================================================================
+   6 · 03/03 DOMINADA AJUSTABLE (compases 13–14)
+   ===================================================================== */
+{
+  const sc=S.p3, a=sc.a, b14=bt(14), out=sc.b;
+  pointTag(sc,'03','LA DOMINADA AJUSTABLE');
+  // compás 13: dominada (100% de tu peso) vs. jalón (tú eliges)
+  const t1=T(sc,`left:${X0}px;top:380px;font-size:60px;color:${C.carbon}`,'Es la versión','a md');
+  const t2=T(sc,`left:${X0}px;top:455px;font-size:100px;color:${C.olivo}`,'AJUSTABLE','a xb');
+  const t3=T(sc,`left:${X0}px;top:565px;font-size:60px;color:${C.carbon}`,'de la <span class="xb">dominada.</span>','a md');
+  track(sc,t1,io(a,b14,{d:70}));
+  track(sc,t2,io(a+BEAT/4,b14,{d:110}));
+  track(sc,t3,io(a+BEAT/2,b14,{d:70}));
+  const LP=layer(sc,60,770,0.42,1080,1400);
+  const pu=backFig(LP.svg,{hang:true});
+  track(sc,LP.d,t=>({o:seg(t,a+BEAT,a+BEAT+0.25)*(1-seg(t,b14-0.12,b14)),y:(1-spring(t-a-BEAT,2.2,0.7))*80}));
+  const lpL=legend(sc,X0,1360,C.piedra,'100% TU PESO',36);
+  track(sc,lpL,io(a+BEAT*1.5,b14,{d:40}));
+  const lpT=T(sc,`left:${X0}px;top:1300px;font-size:36px;color:${C.carbon};letter-spacing:3px`,'DOMINADA','a xb');
+  track(sc,lpT,io(a+BEAT*1.25,b14,{d:30}));
+  // pila de placas
+  const NP=10, PX=600, PY=800, PW=300, PH=40, PG=8;
+  const plates=[...Array(NP)].map((_,i)=>T(sc,`left:${PX}px;top:${PY+i*(PH+PG)}px;width:${PW}px;height:${PH}px;background:${C.piedra};color:${C.hueso};font-size:24px;display:flex;align-items:center;justify-content:flex-end;padding-right:16px`,`${(i+1)*5}`,'a xb'));
+  const pin=T(sc,`left:${PX-60}px;top:0;width:70px;height:16px;background:${C.ocre}`,'');
+  const kg=T(sc,`left:${PX}px;top:${PY-110}px;font-size:76px;color:${C.carbon};font-variant-numeric:tabular-nums`,'15 KG','a xb');
+  const rT=T(sc,`left:${PX}px;top:1300px;font-size:36px;color:${C.carbon};letter-spacing:3px`,'JALÓN','a xb');
+  const rL=legend(sc,PX,1360,C.ocre,'TÚ ELIGES',36);
+  plates.forEach((e,i)=>track(sc,e,io(a+BEAT+i*0.04,b14,{d:60})));
+  [pin,kg].forEach(e=>track(sc,e,fade(a+BEAT*1.5,b14)));
+  track(sc,rT,io(a+BEAT*1.25,b14,{d:30}));
+  track(sc,rL,io(a+BEAT*1.5,b14,{d:40}));
+  const SEL=[3,5,7,4];
+  prop(sc,t=>{
+    pu.update(rep(t,a+BEAT*1.3,BEAT*2.6));
+    let k=SEL[0]; [bt(13,2),bt(13,3),bt(13,4)].forEach((tt,i)=>{if(t>=tt+BEAT/2) k=SEL[i+1];});
+    const lift=rep(t,a+BEAT*1.3)*26;
+    plates.forEach((e,i)=>{
+      const on=i<k;
+      e.style.background=on?C.ocre:C.piedra;
+      e.style.marginTop=on?(-lift).toFixed(1)+'px':'0px';
+    });
+    pin.style.top=(PY+(k-1)*(PH+PG)+PH/2-8-lift)+'px';
+    const s=`${k*5} KG`; if(kg.textContent!==s) kg.textContent=s;
+  });
+  // compás 14: escalera de progreso
+  const q1=T(sc,`left:${X0}px;top:380px;font-size:60px;color:${C.carbon}`,'Progresas','a md');
+  const q2=T(sc,`left:${X0}px;top:455px;font-size:100px;color:${C.olivo}`,'POCO A POCO','a xb'); q2.dataset.fit=MAXW;
+  const q3=T(sc,`left:${X0}px;top:570px;font-size:52px;color:${C.carbon};line-height:1.3`,'hasta poder con<br><span class="xb">tu propio cuerpo.</span>','a md');
+  track(sc,q1,io(b14,out,{d:70}));
+  track(sc,q2,io(b14+BEAT/4,out,{d:110}));
+  track(sc,q3,io(b14+BEAT/2,out,{d:70}));
+  const ST=[['40%',190],['55%',280],['70%',370],['85%',460],['TU PESO',550]], SW=150, SG=12, SB=1320;
+  ST.forEach(([lab,h],i)=>{
+    const last=i===ST.length-1, x=X0+i*(SW+SG), at=b14+BEAT+i*BEAT/3;
+    const bx=T(sc,`left:${x}px;top:${SB-h}px;width:${SW}px;height:${h}px;background:${last?C.ocre:C.olivo};transform-origin:50% 100%;`,'');
+    track(sc,bx,t=>({...io(at,out,{d:0})(t),sy:expOut(seg(t,at,at+0.3))}));
+    const tx=T(sc,`left:${x}px;top:${SB-h-58}px;width:${SW}px;text-align:center;font-size:${last?32:38}px;color:${last?C.ocre:C.carbon}`,lab,'a xb');
+    track(sc,tx,io(at+0.1,out,{d:30}));
+  });
+  const tip=T(sc,`left:${X0}px;top:1360px;font-size:38px;color:${C.carbon}`,'Tip: súmale <span class="xb">negativas de dominada.</span>','a md'); tip.dataset.fit=MAXW;
+  track(sc,tip,io(bt(14,4),out,{d:40}));
+}
+
+/* =====================================================================
+   7 · CIERRE (compases 15–16)
+   ===================================================================== */
+{
+  const sc=S.close, a=sc.a, b16=bt(16), out=sc.b;
+  const e0=T(sc,`left:${X0}px;top:360px;font-size:56px;color:${C.carbon}`,'Entonces:','a md');
+  const e1=T(sc,`left:${X0}px;top:440px;font-size:104px;color:${C.olivo}`,'EL JALÓN AL PECHO','a xb'); e1.dataset.fit=MAXW;
+  const e2=T(sc,`left:${X0}px;top:570px;font-size:60px;color:${C.carbon}`,'es para tu','a md');
+  const e3=T(sc,`left:${X0}px;top:645px;font-size:150px;color:${C.ocre}`,'ESPALDA,','a xb'); e3.dataset.fit=MAXW;
+  const e4=T(sc,`left:${X0}px;top:840px;font-size:60px;color:${C.carbon}`,'no para tus','a md');
+  const e5=T(sc,`left:${X0}px;top:915px;font-size:110px;color:${C.piedra}`,'BRAZOS.','a xb');
+  track(sc,e0,io(a,b16,{d:60}));
+  track(sc,e1,io(a+BEAT/4,b16,{d:110}));
+  track(sc,e2,io(a+BEAT,b16,{d:60}));
+  track(sc,e3,io(a+BEAT*1.25,b16,{d:140,s0:0.85}));
+  track(sc,e4,io(bt(15,3)+BEAT/2,b16,{d:60}));
+  track(sc,e5,io(bt(15,4),b16,{d:100}));
+  strike(sc,X0-10,965,500,bt(15,4)+BEAT/2,b16);
+  // compás 16: codos abajo y hacia atrás, con la figura en bucle
+  const k1=T(sc,`left:${X0}px;top:380px;font-size:120px;color:${C.carbon}`,'CODOS ABAJO','a xb'); k1.dataset.fit=MAXW;
+  const k2=T(sc,`left:${X0}px;top:510px;font-size:120px;color:${C.ocre}`,'Y HACIA ATRÁS.','a xb'); k2.dataset.fit=MAXW;
+  track(sc,k1,io(b16,out,{d:120}));
+  track(sc,k2,io(b16+BEAT/4,out,{d:120}));
+  const L=layer(sc,170,700,0.72);
+  const f=sideFig(L.svg);
+  const tr=sv(f.extra,'line',{stroke:C.ocre,'stroke-width':10,'stroke-dasharray':'22 16'});
+  const th=arrowHead(f.extra,C.ocre,36);
+  track(sc,L.d,t=>({o:seg(t,b16+BEAT/2,b16+BEAT/2+0.25)*(1-seg(t,out-0.12,out)),y:(1-spring(t-b16-BEAT/2,2,0.7))*80}));
+  prop(sc,t=>{
+    const p=rep(t,b16+BEAT/2), q=f.update(p,{lat:1});
+    const st=add(q.E,q.u,10), en=SD.POCKET, ang=Math.atan2(en[1]-st[1],en[0]-st[0]), dd=Math.hypot(en[0]-st[0],en[1]-st[1]);
+    const tip=add(en,[Math.cos(ang),Math.sin(ang)],-30);
+    setL(tr,st,tip); placeHead(th,tip,ang);
+    [tr,th].forEach(e=>e.setAttribute('opacity',dd>70?1:0));
+    tr.setAttribute('stroke-dashoffset',(-(t*90)).toFixed(1));
+  });
+}
+
+/* =====================================================================
+   8 · CTA (compases 17–19): logo · guárdalo
+   ===================================================================== */
+const TAP=bt(18,2);
+{
+  const sc=S.cta, a=sc.a, out=DUR+1, CX=540;
+  const LW=440, LH=Math.round(LW*1699/2400);
+  const logo=T(sc,`left:${CX-LW/2}px;top:${620-LH}px;width:${LW}px;height:${LH}px;transform-origin:50% 100%`,`__LOGO__`);
+  track(sc,logo,t=>{const e=spring(t-a,1.8,0.42);return {s:lerp(0.55,1,e),y:(1-e)*70,o:seg(t,a,a+0.05)};});
+  prop(sc,t=>{const c=expOut(seg(t,a,a+0.5))*(LW+LH+20);logo.style.clipPath=`polygon(0px ${LH}px,${c}px ${LH}px,0px ${LH-c}px)`;});
+  const hdl=T(sc,`left:0;top:680px;width:${2*CX}px;text-align:center;font-size:70px;color:${C.carbon}`,'@abrahamrdz.fit','a xb'); hdl.dataset.fit=760;
+  track(sc,hdl,io(bt(17,3),out,{d:70}));
+  // botón de guardar
+  const BS=190, BX=CX-BS/2, BY=860;
+  const bm=(fill)=>`<svg width="120" height="150" viewBox="0 0 120 150"><path d="M0 0 H120 V150 L60 108 L0 150 Z" fill="${fill}"/></svg>`;
+  const btn=T(sc,`left:${BX}px;top:${BY}px;width:${BS}px;height:${BS}px;display:flex;align-items:center;justify-content:center`,bm(C.piedra));
+  track(sc,btn,t=>{
+    let press=0;
+    if(t>=TAP-0.06&&t<TAP) press=expOut(seg(t,TAP-0.06,TAP));
+    else if(t>=TAP) press=1-spring(t-TAP,3,0.32);
+    return {s:spring(t-bt(18),2.4,0.5)*(1-0.1*press),o:seg(t,bt(18),bt(18)+0.05)};
+  });
+  prop(sc,t=>{const on=t>=TAP, w=on?'B':'A'; if(btn.dataset.l!==w){btn.innerHTML=bm(on?C.ocre:C.piedra);btn.dataset.l=w;}});
+  const cur=T(sc,`left:0;top:0;width:70px;height:96px`,`<svg width="70" height="96" viewBox="-4 -4 58 80"><path d="M0 0 L0 62 L15 49 L26 72 L37 67 L26 44 L46 44 Z" fill="${C.carbon}"/></svg>`);
+  const p0={x:880,y:1500}, p1={x:CX+20,y:BY+BS/2+10};
+  track(sc,cur,t=>{
+    const m=expOut(seg(t,bt(18)+BEAT/2,bt(18)+BEAT/2+0.6));
+    let s=1; if(t>=TAP-0.06&&t<TAP+0.25) s=1-0.18*(t<TAP?seg(t,TAP-0.06,TAP):1-seg(t,TAP,TAP+0.25));
+    const leave=expIn(seg(t,TAP+0.6,TAP+1.0));
+    return {x:lerp(p0.x,p1.x,m)+leave*500,y:lerp(p0.y,p1.y,m)+leave*900,s,o:seg(t,bt(18)+BEAT/2,bt(18)+BEAT/2+0.05)*(1-seg(t,TAP+0.75,TAP+1.0))};
+  });
+  const g1=T(sc,`left:0;top:1110px;width:${2*CX}px;text-align:center;font-size:92px;color:${C.carbon}`,'GUÁRDALO','a xb');
+  const g2=T(sc,`left:0;top:1220px;width:${2*CX}px;text-align:center;font-size:50px;color:${C.carbon};line-height:1.3`,'para tu próximo<br><span class="xb">día de espalda.</span>','a md');
+  track(sc,g1,io(bt(18,3),out,{d:80}));
+  track(sc,g2,io(bt(18,3)+BEAT/2,out,{d:60}));
+  const tg=T(sc,`left:0;top:1400px;width:${2*CX}px;text-align:center;font-size:60px;color:${C.olivo}`,'Estructura primero.','a xb'); tg.dataset.fit=760;
+  track(sc,tg,io(bt(19),out,{d:70}));
+}
+
+/* ---------- ajuste de texto a la columna ---------- */
+function fitAll(){
+  document.querySelectorAll('[data-fit]').forEach(e=>{
+    const max=+e.dataset.fit; const root=e.parentElement;
+    const rd=root.style.display; root.style.display='block';
+    let fs=parseFloat(getComputedStyle(e).fontSize);
+    const kids=[...e.querySelectorAll('span')].map(s=>[s,parseFloat(getComputedStyle(s).fontSize)]);
+    const w0=e.style.width; e.style.width='max-content';
+    let k=1; for(let i=0;i<60&&e.offsetWidth>max+0.5;i++){k*=0.98;e.style.fontSize=(fs*k)+'px';kids.forEach(([s,f])=>s.style.fontSize=(f*k)+'px');}
+    e.style.width=w0; root.style.display=rd;
+  });
+}
+
+/* ---------- fondo con barrido a 45° ---------- */
+const bgA=document.getElementById('bgA'), bgB=document.getElementById('bgB'), bgE=document.getElementById('bgEdge'), bgEIn=document.getElementById('bgEdgeIn');
+const vidA=document.getElementById('vidA'), vidB=document.getElementById('vidB');
+function tri(c){return `polygon(0px 1920px,${c}px 1920px,0px ${1920-c}px)`;}
+function vidSrc(s,t){
+  const v=s.vid, i=clamp(Math.floor((t-s.a)*v.fps),0,v.n-1)+1;
+  return `${v.dir}/f_${String(i).padStart(4,'0')}.jpg`;
+}
+function paint(layer,img,s,t,pend){
+  layer.style.background=s.bg;
+  if(!s.vid){img.style.display='none';return;}
+  img.style.display='block';
+  const src=vidSrc(s,t);
+  if(img.dataset.src!==src){img.dataset.src=src;img.src=src;pend.push(img.decode().catch(()=>{}));}
+  const z=1+0.05*seg(t,s.a,s.b);
+  img.style.transform=`scale(${z.toFixed(4)})`;
+}
+function background(t,pend){
+  let i=0; SCENES.forEach((s,k)=>{if(t>=s.a) i=k;});
+  const cur=SCENES[i], prev=SCENES[Math.max(0,i-1)];
+  const ease=p=>1-Math.pow(1-p,3), D=0.55, L=1080+1920+80;
+  const cAt=x=>(i===0?1:ease(seg(x,cur.a,cur.a+D)))*L, c=cAt(t);
+  const v=Math.abs(cAt(t+1/240)-cAt(Math.max(cur.a,t-1/240)))*120/Math.SQRT2;
+  if(c<L) paint(bgA,vidA,prev,t,pend); else {vidA.style.display='none';}
+  paint(bgB,vidB,cur,t,pend);
+  bgB.style.clipPath=tri(c); bgEIn.style.clipPath=tri(Math.min(c+28,3100));
+  bgE.style.display=(c>=L)?'none':'block';
+  const bl=Math.min(18,v/700); bgE.style.filter=bl>0.6?`blur(${bl.toFixed(1)}px)`:'none';
+}
+
+/* ---------- seek: todo el estilo sale de t ---------- */
+window.seek=function(t){
+  t=clamp(t,0,DUR-1e-4);
+  const pend=[];
+  background(t,pend);
+  SCENES.forEach(s=>{
+    const on=t>=s.a&&t<s.b;
+    s.root.style.display=on?'block':'none';
+    if(!on) return;
+    s.props.forEach(f=>f(t));
+    s.tracks.forEach(tr=>applyTrack(tr,t));
+  });
+  const z=1+0.07*expInOut(seg(t,bt(19),DUR));
+  cam.style.transform=`scale(${z.toFixed(4)})`;
+  return pend.length?Promise.all(pend).then(()=>true):true;
+};
+window.showSafe=v=>{document.getElementById('safe').style.display=v?'block':'none';};
+window.META={DUR,BPM,BEAT,BAR,NBARS};
+window.ready=(async()=>{
+  await document.fonts.load('800 100px Montserrat'); await document.fonts.load('500 100px Montserrat'); await document.fonts.ready;
+  fitAll(); await window.seek(0); return true;
+})();
+
+/* =====================================================================
+   BANDA SONORA (OfflineAudioContext) -> WAV base64
+   ===================================================================== */
+window.renderAudio=async function(){
+  const SR=48000, LEN=Math.ceil(DUR*SR);
+  const ctx=new OfflineAudioContext(2,LEN,SR);
+  let seed=7654321; const rnd=()=>{seed=(seed*1664525+1013904223)>>>0;return seed/4294967296*2-1;};
+  const nb=ctx.createBuffer(1,SR*2,SR); const nd=nb.getChannelData(0); for(let i=0;i<nd.length;i++) nd[i]=rnd();
+  const comp=ctx.createDynamicsCompressor(); comp.threshold.value=-16; comp.ratio.value=3; comp.attack.value=0.004; comp.release.value=0.12; comp.knee.value=8;
+  const master=ctx.createGain(); master.gain.value=0.8;
+  const fd=ctx.createGain(); fd.gain.setValueAtTime(1,0); fd.gain.setValueAtTime(1,DUR-0.5); fd.gain.linearRampToValueAtTime(0,DUR);
+  master.connect(comp); comp.connect(fd); fd.connect(ctx.destination);
+  const bus=(g,pan=0)=>{const x=ctx.createGain();x.gain.value=g;const p=ctx.createStereoPanner();p.pan.value=pan;x.connect(p);p.connect(master);return x;};
+  const drums=bus(0.8), sfx=bus(1);
+  const noise=(t,dur,out)=>{const s=ctx.createBufferSource();s.buffer=nb;s.connect(out);s.start(t,(t*7.3)%1,dur);return s;};
+  const env=(g,t,peak,att,dec)=>{g.gain.setValueAtTime(0.0001,t);g.gain.linearRampToValueAtTime(peak,t+att);g.gain.exponentialRampToValueAtTime(0.0001,t+att+dec);};
+  function kick(t,v=1){
+    const o=ctx.createOscillator(),g=ctx.createGain();o.type='sine';
+    o.frequency.setValueAtTime(165,t);o.frequency.exponentialRampToValueAtTime(46,t+0.11);
+    env(g,t,0.95*v,0.002,0.34);o.connect(g);g.connect(drums);o.start(t);o.stop(t+0.4);
+    const f=ctx.createBiquadFilter();f.type='highpass';f.frequency.value=2500;const gn=ctx.createGain();env(gn,t,0.18*v,0.001,0.012);
+    f.connect(gn);gn.connect(drums);noise(t,0.03,f);
+  }
+  function clap(t,v=1){
+    const f=ctx.createBiquadFilter();f.type='bandpass';f.frequency.value=1600;f.Q.value=0.9;const g=ctx.createGain();
+    g.gain.setValueAtTime(0.0001,t);
+    [0,0.011,0.022].forEach(d=>{g.gain.setValueAtTime(0.38*v,t+d);g.gain.exponentialRampToValueAtTime(0.06*v,t+d+0.009);});
+    g.gain.setValueAtTime(0.3*v,t+0.033);g.gain.exponentialRampToValueAtTime(0.0001,t+0.2);
+    f.connect(g);g.connect(drums);noise(t,0.22,f);
+  }
+  function hat(t,v=1,open=false){
+    const f=ctx.createBiquadFilter();f.type='highpass';f.frequency.value=7500;const g=ctx.createGain();
+    env(g,t,0.13*v,0.001,open?0.16:0.035);f.connect(g);g.connect(drums);noise(t,open?0.2:0.06,f);
+  }
+  function bass(t,hz,v=1){
+    const o=ctx.createOscillator(),s=ctx.createOscillator(),lp=ctx.createBiquadFilter(),g=ctx.createGain();
+    o.type='sawtooth';s.type='sine';o.frequency.value=hz;s.frequency.value=hz;
+    lp.type='lowpass';lp.Q.value=3;lp.frequency.setValueAtTime(900,t);lp.frequency.exponentialRampToValueAtTime(180,t+0.2);
+    env(g,t,0.2*v,0.006,0.24);o.connect(lp);s.connect(lp);lp.connect(g);g.connect(drums);o.start(t);s.start(t);o.stop(t+0.3);s.stop(t+0.3);
+  }
+  function whoosh(tEnd,v=1){
+    const t0=tEnd-0.34, f=ctx.createBiquadFilter(),g=ctx.createGain(),p=ctx.createStereoPanner();
+    f.type='bandpass';f.Q.value=1.4;f.frequency.setValueAtTime(350,t0);f.frequency.exponentialRampToValueAtTime(4200,tEnd);f.frequency.exponentialRampToValueAtTime(900,tEnd+0.22);
+    g.gain.setValueAtTime(0.0001,t0);g.gain.exponentialRampToValueAtTime(0.42*v,tEnd-0.01);g.gain.exponentialRampToValueAtTime(0.0001,tEnd+0.24);
+    p.pan.setValueAtTime(-0.6,t0);p.pan.linearRampToValueAtTime(0.6,tEnd+0.2);
+    f.connect(g);g.connect(p);p.connect(sfx);noise(t0,0.62,f);
+  }
+  const ir=ctx.createBuffer(2,Math.floor(SR*1.6),SR);
+  for(let c=0;c<2;c++){const d=ir.getChannelData(c);for(let i=0;i<d.length;i++) d[i]=rnd()*Math.pow(1-i/d.length,3.2);}
+  const verb=ctx.createConvolver();verb.buffer=ir;const vret=ctx.createGain();vret.gain.value=0.32;verb.connect(vret);vret.connect(master);
+  const out=(node,send=0)=>{node.connect(sfx);if(send>0){const g=ctx.createGain();g.gain.value=send;node.connect(g);g.connect(verb);}};
+  const N={E5:659.26,G5:783.99,A5:880,B5:987.77,D6:1174.66,E6:1318.51,G6:1567.98,A6:1760,B4:493.88,E4:329.63};
+  const PENTA=[N.E5,N.G5,N.A5,N.B5,N.D6,N.E6,N.G6,N.A6];
+  function impact(t,v=1,hz=55){
+    const o=ctx.createOscillator(),g=ctx.createGain();o.frequency.setValueAtTime(hz*2.4,t);o.frequency.exponentialRampToValueAtTime(hz,t+0.09);
+    env(g,t,0.6*v,0.002,0.26);o.connect(g);out(g);o.start(t);o.stop(t+0.32);
+    const f=ctx.createBiquadFilter();f.type='lowpass';f.frequency.value=1400;const gn=ctx.createGain();env(gn,t,0.45*v,0.001,0.045);
+    f.connect(gn);out(gn,0.15);noise(t,0.07,f);
+  }
+  function popS(t,hz=N.E5,v=1){
+    const o=ctx.createOscillator(),g=ctx.createGain();o.type='sine';
+    o.frequency.setValueAtTime(hz*1.7,t);o.frequency.exponentialRampToValueAtTime(hz,t+0.035);
+    env(g,t,0.32*v,0.002,0.09);o.connect(g);out(g,0.12);o.start(t);o.stop(t+0.13);
+  }
+  function blip(t,hz,v=1){
+    [[1,0.28,0.22],[4,0.08,0.05]].forEach(([m,a,d])=>{const o=ctx.createOscillator(),g=ctx.createGain();o.type='sine';o.frequency.value=hz*m;
+      env(g,t,a*v,0.002,d);o.connect(g);out(g,0.25);o.start(t);o.stop(t+d+0.05);});
+  }
+  function ding(t,hz=N.E6,v=1){
+    [[1,0.22,1.1],[2.76,0.08,0.45],[5.4,0.04,0.2]].forEach(([m,a,d])=>{const o=ctx.createOscillator(),g=ctx.createGain();o.type='sine';o.frequency.value=hz*m;
+      env(g,t,a*v,0.002,d);o.connect(g);out(g,0.45);o.start(t);o.stop(t+d+0.05);});
+  }
+  const chime=(t,notes,v=1,gap=0.06)=>notes.forEach((hz,i)=>ding(t+i*gap,hz,v));
+  function swish(t,dur=0.35,v=1,up=true){
+    const f=ctx.createBiquadFilter(),g=ctx.createGain();f.type='bandpass';f.Q.value=2;
+    f.frequency.setValueAtTime(up?600:5000,t);f.frequency.exponentialRampToValueAtTime(up?6000:500,t+dur);
+    g.gain.setValueAtTime(0.0001,t);g.gain.exponentialRampToValueAtTime(0.22*v,t+dur*0.35);g.gain.exponentialRampToValueAtTime(0.0001,t+dur);
+    f.connect(g);out(g);noise(t,dur+0.02,f);
+  }
+  const zip=(t,v=1)=>swish(t,0.09,v,true);
+  function click(t,v=1){
+    const f=ctx.createBiquadFilter();f.type='highpass';f.frequency.value=3500;const g=ctx.createGain();env(g,t,0.35*v,0.0005,0.012);
+    f.connect(g);out(g);noise(t,0.02,f);
+  }
+  function scratch(t,v=1){
+    const f=ctx.createBiquadFilter(),g=ctx.createGain();f.type='bandpass';f.Q.value=3;
+    f.frequency.setValueAtTime(2500,t);f.frequency.exponentialRampToValueAtTime(900,t+0.2);
+    env(g,t,0.3*v,0.003,0.2);f.connect(g);out(g);noise(t,0.25,f);
+  }
+  function pop(t,v=1){
+    const o=ctx.createOscillator(),g=ctx.createGain();o.type='sine';
+    o.frequency.setValueAtTime(1150,t);o.frequency.exponentialRampToValueAtTime(260,t+0.07);
+    env(g,t,0.7*v,0.002,0.11);o.connect(g);out(g);o.start(t);o.stop(t+0.15);
+  }
+  function boom(t,v=1){
+    const o=ctx.createOscillator(),g=ctx.createGain();o.frequency.setValueAtTime(90,t);o.frequency.exponentialRampToValueAtTime(38,t+0.5);
+    env(g,t,0.8*v,0.003,1.4);o.connect(g);out(g);o.start(t);o.stop(t+1.5);
+  }
+  // cable de la polea: un "clac" metálico de placas al final de cada jalón
+  function clank(t,v=1){
+    [[420,0.12,0.12],[1180,0.06,0.07]].forEach(([hz,a,d])=>{const o=ctx.createOscillator(),g=ctx.createGain();o.type='square';o.frequency.value=hz;
+      const f=ctx.createBiquadFilter();f.type='bandpass';f.frequency.value=hz*1.5;f.Q.value=4;
+      env(g,t,a*v,0.001,d);o.connect(f);f.connect(g);out(g,0.15);o.start(t);o.stop(t+d+0.05);});
+  }
+  const tagIn=t=>{click(t,0.8);zip(t,0.5);};
+  // groove
+  const notes=[82.41,82.41,65.41,73.42];
+  for(let n=1;n<=NBARS;n++){
+    for(let b=1;b<=4;b++){
+      const t=bt(n,b);
+      if(n===NBARS){ if(b===1){kick(t);boom(t,0.7);hat(t,0.8,true);} continue; }
+      kick(t, n===1&&b===1?1.1:1);
+      if(n>=2&&(b===2||b===4)) clap(t, n>=17?0.8:1);
+      hat(t+BEAT/2,1,b===4&&n%2===0);
+      if(n>=2) hat(t+BEAT/4,0.45), hat(t+3*BEAT/4,0.45);
+      if(n>=2) bass(t+BEAT/2,notes[(n-2)%4]);
+    }
+  }
+  SCENES.slice(1).forEach(s=>whoosh(s.a,1));
+  [bt(3),bt(6),bt(7),bt(10),bt(11),bt(14),bt(16)].forEach(t=>whoosh(t,0.45));
+  // reps animadas: clac abajo de cada jalón (escenas con figura)
+  const reps=(t0,t1,st,per=2*BEAT)=>{for(let t=st+0.34*per;t<t1;t+=per) if(t>t0) clank(t,0.6);};
+  if(!VIDINFO) reps(0,bt(5),0.15);
+  reps(bt(5),bt(8),bt(5)+0.3); reps(bt(9),bt(11),bt(9)+0.6); reps(bt(10),bt(11),bt(10)+BEAT/2); reps(bt(16),bt(17),bt(16)+BEAT/2);
+  // gancho
+  tagIn(bt(1)); impact(bt(1)+BEAT/4,1,55); impact(bt(1)+BEAT/2,0.9,62);
+  impact(bt(2),0.9); impact(bt(2)+BEAT/4,1.1,45); ding(bt(2)+BEAT/4+0.02,N.E6,0.8); popS(bt(2,3),N.G5);
+  impact(bt(3),0.8); popS(bt(3)+BEAT/4,N.A5,0.8);
+  impact(bt(4),1,50); ding(bt(4)+0.03,N.E6,0.8); popS(bt(4)+BEAT/2,N.G5);
+  // 01
+  tagIn(bt(5)); impact(bt(5),0.9); popS(bt(5)+BEAT,N.B4); zip(bt(5)+BEAT-0.04,0.5); ding(bt(5)+BEAT+0.25,N.E6,0.7);
+  impact(bt(6),0.8); popS(bt(6)+BEAT/4,N.G5); impact(bt(6)+BEAT,0.9,50); swish(bt(6)+BEAT,0.4,0.6);
+  popS(bt(7),N.E5); for(let i=0;i<3;i++){zip(bt(7)+BEAT/2+i*BEAT-0.04,0.4);blip(bt(7)+BEAT/2+i*BEAT,PENTA[i*2+1]);}
+  // bucle 1
+  popS(bt(8),N.E5); impact(bt(8)+BEAT/4,0.8,62); impact(bt(8)+BEAT/2,0.8,55);
+  impact(bt(8,3),1.1,45); ding(bt(8,3)+0.03,N.E6,0.9); popS(bt(8,4),N.A5,0.8);
+  // 02
+  tagIn(bt(9)); impact(bt(9),0.9); popS(bt(9)+BEAT/4,N.G5); swish(bt(9)+BEAT,BEAT,0.6); ding(bt(9)+2*BEAT,N.E6,0.6);
+  impact(bt(10),0.9); popS(bt(10)+BEAT/4,N.B4); popS(bt(10)+BEAT/2,N.E5); blip(bt(10)+BEAT,PENTA[3]); popS(bt(10,3),N.A5,0.7);
+  impact(bt(11),0.9); swish(bt(11)+BEAT/4,BEAT,0.6); impact(bt(11)+BEAT/2,1,50); ding(bt(11)+BEAT/2+0.03,N.E6,0.8); popS(bt(11,3)+BEAT/2,N.G5);
+  // bucle 2
+  popS(bt(12),N.E5); impact(bt(12)+BEAT/4,0.8,62); impact(bt(12)+BEAT/2,1.1,45); chime(bt(12)+BEAT/2+0.03,[N.E6,N.B5,N.E6],0.7,0.07);
+  popS(bt(12,3),N.G5);
+  // 03
+  tagIn(bt(13)); impact(bt(13),0.9); popS(bt(13)+BEAT/4,N.G5);
+  for(let i=0;i<10;i++) click(bt(13)+BEAT+i*0.04,0.4);
+  [bt(13,2),bt(13,3),bt(13,4)].forEach((t,i)=>{clank(t+BEAT/2,0.9);blip(t+BEAT/2,PENTA[i+2],0.7);});
+  impact(bt(14),0.9); popS(bt(14)+BEAT/4,N.B4);
+  for(let i=0;i<5;i++) blip(bt(14)+BEAT+i*BEAT/3,PENTA[i+1],1);
+  ding(bt(14)+BEAT+4*BEAT/3+0.02,N.E6,0.9); popS(bt(14,4),N.A5,0.8);
+  // cierre
+  popS(bt(15),N.E5); impact(bt(15)+BEAT/4,0.9); impact(bt(15)+BEAT*1.25,1.1,45); ding(bt(15)+BEAT*1.25+0.03,N.E6,0.8);
+  popS(bt(15,3)+BEAT/2,N.G5); impact(bt(15,4),0.7,62); scratch(bt(15,4)+BEAT/2,1); scratch(bt(15,4)+BEAT/2+0.08,0.7);
+  impact(bt(16),1,50); impact(bt(16)+BEAT/4,1,45); ding(bt(16)+BEAT/4+0.03,N.E6,0.8);
+  // CTA
+  boom(bt(17),0.6); swish(bt(17),0.5,0.9); chime(bt(17)+0.05,[N.E5,N.B5,N.E6],0.8,0.07);
+  popS(bt(17,3),N.G5); popS(bt(18),N.E4,1.2);
+  click(TAP-0.04,1); pop(TAP,1); chime(TAP+0.06,[N.B5,N.E6],1,0.08);
+  popS(bt(18,3),N.A5); popS(bt(18,3)+BEAT/2,N.G5,0.7);
+  impact(bt(19),0.8); chime(bt(19)+0.03,[N.E5,N.G5,N.B5,N.E6],0.7,0.05);
+
+  const buf=await ctx.startRendering();
+  const L=buf.getChannelData(0),R=buf.getChannelData(1);let pk=0;for(let i=0;i<L.length;i++){pk=Math.max(pk,Math.abs(L[i]),Math.abs(R[i]));}
+  const gain=pk>0?0.891/pk:1, n=L.length, ab=new ArrayBuffer(44+n*4), dv=new DataView(ab);
+  const ws=(o,s)=>{for(let i=0;i<s.length;i++) dv.setUint8(o+i,s.charCodeAt(i));};
+  ws(0,'RIFF');dv.setUint32(4,36+n*4,true);ws(8,'WAVE');ws(12,'fmt ');dv.setUint32(16,16,true);dv.setUint16(20,1,true);dv.setUint16(22,2,true);
+  dv.setUint32(24,SR,true);dv.setUint32(28,SR*4,true);dv.setUint16(32,4,true);dv.setUint16(34,16,true);ws(36,'data');dv.setUint32(40,n*4,true);
+  for(let i=0;i<n;i++){dv.setInt16(44+i*4,Math.round(clamp(L[i]*gain,-1,1)*32767),true);dv.setInt16(46+i*4,Math.round(clamp(R[i]*gain,-1,1)*32767),true);}
+  const u8=new Uint8Array(ab);let bin='';for(let i=0;i<u8.length;i+=0x8000) bin+=String.fromCharCode.apply(null,u8.subarray(i,i+0x8000));
+  return btoa(bin);
+};
+</script>
+</body>
+</html>
